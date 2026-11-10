@@ -85,12 +85,12 @@ async function renderEmailChange(c: Context, props: EmailChangeConfirmPageProps 
 }
 
 app.post('/email', ...auth({ requireAuthenticated: true }), async c => {
-  const { email, id } = c.var.user
+  const { email } = c.var.user
   const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${email}` })
   if (!success) return errors.rateLimitResponse(c)
 
   const lifetimeSeconds = c.env.LOGIN_TOKEN_LIFETIME_SECONDS
-  const [created, tokenErr] = await tokens.create(c.env.MY_DB, id, lifetimeSeconds, tokens.emailChangeScope)
+  const [created, tokenErr] = await tokens.create(c.env.MY_DB, c.var.user, lifetimeSeconds, tokens.emailChangeScope)
   if (tokenErr !== null) return errors.serverErrorResponse(c, tokenErr)
   const url = new URL('/settings/email/confirm', c.env.APP_URL)
   url.searchParams.set('token', created.token)
@@ -139,7 +139,7 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   if (consumeErr === ErrRecordNotFound) return invalidToken()
   if (consumeErr !== null) return errors.serverErrorResponse(c, consumeErr)
 
-  const user = new users.User({ ...tokenUser, email })
+  const user = new users.User({ ...tokenUser, email, auth_version: tokenUser.auth_version + 1 })
   const [, err] = await users.updateUser(c.env.MY_DB, user)
   if (err === ErrEditConflict) return errors.editConflictResponse(c)
   if (err !== null) return errors.serverErrorResponse(c, err)

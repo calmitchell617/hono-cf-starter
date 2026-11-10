@@ -11,6 +11,7 @@ type UserRow = {
   email: string
   created_at: number
   version: number
+  auth_version: number
 }
 
 export class User {
@@ -19,6 +20,7 @@ export class User {
   readonly email: string
   readonly created_at: number
   readonly version: number
+  readonly auth_version: number
 
   constructor(user: UserRow, readonly permissions: PermissionChecks = {}, readonly roles: readonly string[] = []) {
     this.id = user.id
@@ -26,6 +28,7 @@ export class User {
     this.email = user.email
     this.created_at = user.created_at
     this.version = user.version
+    this.auth_version = user.auth_version
   }
 
   isAnonymous(): boolean {
@@ -34,13 +37,13 @@ export class User {
 }
 
 export const anonymousUser = Object.freeze(new User(
-  { id: 0, name: '', email: '', created_at: 0, version: 0 },
+  { id: 0, name: '', email: '', created_at: 0, version: 0, auth_version: 0 },
   Object.freeze({ 'snippets:list': true }),
 ))
 
 export async function getByID(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
   try {
-    const user = await db.prepare('SELECT id, name, email, created_at, version FROM users WHERE id = ?')
+    const user = await db.prepare('SELECT id, name, email, created_at, version, auth_version FROM users WHERE id = ?')
       .bind(id).first<UserRow>()
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
@@ -54,7 +57,7 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
     const filter = codes === undefined ? '' : 'AND permissions.code IN (SELECT value FROM json_each(?))'
     const params = codes === undefined ? [id] : [JSON.stringify(codes), id]
     const { results } = await db.prepare(`
-      SELECT DISTINCT users.id, users.name, users.email, users.created_at, users.version,
+      SELECT DISTINCT users.id, users.name, users.email, users.created_at, users.version, users.auth_version,
         permissions.code
       FROM users
       LEFT JOIN user_roles ON user_roles.user_id = users.id
@@ -75,7 +78,7 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
 export async function getByIDWithRoles(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
   try {
     const { results } = await db.prepare(`
-      SELECT users.id, users.name, users.email, users.created_at, users.version, roles.name AS role
+      SELECT users.id, users.name, users.email, users.created_at, users.version, users.auth_version, roles.name AS role
       FROM users
       LEFT JOIN user_roles ON user_roles.user_id = users.id
       LEFT JOIN roles ON roles.id = user_roles.role_id
@@ -93,10 +96,10 @@ export async function getByIDWithRoles(db: D1Database, id: number): Promise<[Use
 export async function updateUser(db: D1Database, user: User): Promise<[User, null] | [null, Error]> {
   try {
     const updatedUser = await db.prepare(`
-      UPDATE users SET name = ?, email = ?, version = version + 1
+      UPDATE users SET name = ?, email = ?, auth_version = ?, version = version + 1
       WHERE id = ? AND version = ?
-      RETURNING id, name, email, created_at, version
-    `).bind(user.name, user.email, user.id, user.version).first<UserRow>()
+      RETURNING id, name, email, created_at, version, auth_version
+    `).bind(user.name, user.email, user.auth_version, user.id, user.version).first<UserRow>()
     if (updatedUser === null) return [null, ErrEditConflict]
     return [new User(updatedUser), null]
   } catch (e) {
@@ -106,7 +109,7 @@ export async function updateUser(db: D1Database, user: User): Promise<[User, nul
 
 export async function getByEmail(db: D1Database, email: string): Promise<[User, null] | [null, Error]> {
   try {
-    const user = await db.prepare('SELECT id, name, email, created_at, version FROM users WHERE email = ?')
+    const user = await db.prepare('SELECT id, name, email, created_at, version, auth_version FROM users WHERE email = ?')
       .bind(email).first<UserRow>()
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
@@ -119,10 +122,11 @@ export async function getForToken(db: D1Database, scope: string, token: string):
   try {
     const hash = await hashToken(token)
     const user = await db.prepare(`
-      SELECT users.id, users.name, users.email, users.created_at, users.version
+      SELECT users.id, users.name, users.email, users.created_at, users.version, users.auth_version
       FROM users
       JOIN tokens ON tokens.user_id = users.id
       WHERE tokens.hash = ? AND tokens.scope = ? AND tokens.expires_at > ?
+        AND tokens.auth_version = users.auth_version
     `).bind(hash, scope, Date.now()).first<UserRow>()
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
@@ -136,7 +140,7 @@ export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>
     const results = await db.batch<UserRow>([db.prepare(`
       INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)
       ON CONFLICT(email) DO NOTHING
-      RETURNING id, name, email, created_at, version
+      RETURNING id, name, email, created_at, version, auth_version
     `).bind(input.name, input.email, Date.now()), db.prepare(`
       INSERT INTO user_roles (user_id, role_id)
       SELECT users.id, roles.id FROM users CROSS JOIN roles

@@ -16,7 +16,7 @@ const app = new Hono<AppEnv>()
 
 async function emailLoginLink(c: Context<AppEnv>, user: users.User): Promise<Response> {
   const lifetimeSeconds = c.env.LOGIN_TOKEN_LIFETIME_SECONDS
-  const [created, tokenErr] = await tokens.create(c.env.MY_DB, user.id, lifetimeSeconds, tokens.authenticationScope)
+  const [created, tokenErr] = await tokens.create(c.env.MY_DB, user, lifetimeSeconds, tokens.authenticationScope)
   if (tokenErr !== null) return errors.serverErrorResponse(c, tokenErr)
 
   const url = new URL('/login/confirm', c.env.APP_URL)

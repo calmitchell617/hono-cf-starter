@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -57,8 +57,11 @@ before(async () => {
   }] })
   db = await runtime.getD1Database('MY_DB', 'storage')
   kv = await runtime.getKVNamespace('SESSION_KV', 'storage')
-  const sql = await readFile(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8')
-  await db.batch(sql.split(';').map(s => s.trim()).filter(Boolean).map(s => db.prepare(s)))
+  const migrations = new URL('../migrations/', import.meta.url)
+  for (const file of (await readdir(migrations)).filter(file => file.endsWith('.sql')).sort()) {
+    const sql = await readFile(new URL(file, migrations), 'utf8')
+    await db.batch(sql.split(';').map(s => s.trim()).filter(Boolean).map(s => db.prepare(s)))
+  }
 })
 
 beforeEach(async () => {
@@ -924,14 +927,15 @@ test('the configured login token lifetime controls expiry and both email formats
 
 test('tokens support multiple scopes and cannot be consumed or removed through another scope', async () => {
   const { token: loginToken } = await signup()
-  const { id } = await db.prepare('SELECT id FROM users').first()
-  const [token, createErr] = await tokensModel.create(db, id, 600, 'password-reset')
+  const [requestingUser] = await usersModel.getByEmail(db, 'reader@example.com')
+  const { id, auth_version } = requestingUser
+  const [token, createErr] = await tokensModel.create(db, requestingUser, 600, 'password-reset')
   assert.equal(createErr, null)
   assert.equal(token.user_id, id)
   assert.equal(token.scope, 'password-reset')
   assert.equal(token.hash, createHash('sha256').update(token.token).digest('hex'))
   const stored = await db.prepare('SELECT * FROM tokens WHERE hash = ?').bind(token.hash).first()
-  assert.deepEqual(stored, { hash: token.hash, user_id: id, expires_at: token.expires_at, scope: 'password-reset' })
+  assert.deepEqual(stored, { hash: token.hash, user_id: id, auth_version, expires_at: token.expires_at, scope: 'password-reset' })
   const [user, userErr] = await usersModel.getForToken(db, 'password-reset', token.token)
   assert.equal(userErr, null)
   assert.equal(user.id, id)
@@ -1203,7 +1207,7 @@ test('changing email sends a token to the current address and redirects to a for
   assert.match(sentEmails.at(-1).text, new RegExp(`Your token: ${token}`))
   assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
   const pending = await db.prepare("SELECT * FROM tokens WHERE scope = 'email-change'").first()
-  assert.deepEqual(Object.keys(pending).sort(), ['expires_at', 'hash', 'scope', 'user_id'])
+  assert.deepEqual(Object.keys(pending).sort(), ['auth_version', 'expires_at', 'hash', 'scope', 'user_id'])
   assert.equal(pending.hash, createHash('sha256').update(token).digest('hex'))
   const blank = await request(application, '/settings/email/confirm', { headers: { cookie } })
   const blankHTML = await blank.text()
@@ -1245,6 +1249,67 @@ test('submitting a valid email-change token updates the address and flashes once
   assert.equal(replay.status, 400)
   assert.match(await replay.text(), /invalid, expired, or already used/)
   assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'new@example.com')
+})
+
+test('email changes invalidate outstanding tokens while name changes preserve them and sessions stay authenticated', async () => {
+  const cookie = await signedIn()
+  await postForm('/login', { email: 'owner@example.com' })
+  const oldLogin = emailChangeURL()
+  await postForm('/settings/email', {}, { cookie })
+  const change = emailChangeURL()
+  await postForm('/settings/email', {}, { cookie })
+  const spareChange = emailChangeURL()
+
+  assert.equal((await postForm('/settings', { name: 'Updated name' }, { cookie })).status, 303)
+  const [before, beforeErr] = await usersModel.getForToken(db, 'authentication', oldLogin.searchParams.get('token'))
+  assert.equal(beforeErr, null)
+  assert.equal(before.auth_version, 1)
+  assert.equal((await confirmEmail(change, cookie)).status, 303)
+  const [after] = await usersModel.getByID(db, before.id)
+  assert.equal(after.auth_version, 2)
+  assert.equal(after.name, 'Updated name')
+  assert.equal((await request(application, '/settings', { headers: { cookie } })).status, 200)
+
+  for (const [scope, url] of [['authentication', oldLogin], ['email-change', spareChange]]) {
+    const token = url.searchParams.get('token')
+    const [user, lookupErr] = await usersModel.getForToken(db, scope, token)
+    assert.equal(user, null)
+    assert.match(lookupErr.message, /no matching record/)
+    const [id, consumeErr] = await tokensModel.consume(db, scope, token)
+    assert.equal(id, null)
+    assert.match(consumeErr.message, /no matching record/)
+  }
+  assert.equal((await request(application, oldLogin.pathname + oldLogin.search)).status, 400)
+  assert.equal((await postForm('/login/confirm', { token: oldLogin.searchParams.get('token') })).status, 400)
+  assert.equal((await confirmEmail(spareChange, cookie, 'taken@example.com')).status, 400)
+
+  await postForm('/login', { email: 'new@example.com' })
+  assert.equal(sentEmails.at(-1).to, 'new@example.com')
+  const freshLogin = emailChangeURL()
+  assert.equal((await postForm('/login/confirm', { token: freshLogin.searchParams.get('token') })).headers.get('location'), '/')
+  await postForm('/settings/email', {}, { cookie })
+  assert.equal((await confirmEmail(emailChangeURL(), cookie, 'next@example.com')).status, 303)
+  const [next] = await usersModel.getByID(db, before.id)
+  assert.equal(next.auth_version, 3)
+})
+
+test('tokens issued from an old user snapshot after an email change are already invalid', async () => {
+  const cookie = await signedIn()
+  const [snapshot] = await usersModel.getByEmail(db, 'owner@example.com')
+  await postForm('/settings/email', {}, { cookie })
+  assert.equal((await confirmEmail(emailChangeURL(), cookie)).status, 303)
+
+  for (const scope of ['authentication', 'email-change']) {
+    const [created, createErr] = await tokensModel.create(db, snapshot, 900, scope)
+    assert.equal(createErr, null)
+    assert.equal(created.auth_version, snapshot.auth_version)
+    const [user, lookupErr] = await usersModel.getForToken(db, scope, created.token)
+    assert.equal(user, null)
+    assert.match(lookupErr.message, /no matching record/)
+    const [id, consumeErr] = await tokensModel.consume(db, scope, created.token)
+    assert.equal(id, null)
+    assert.match(consumeErr.message, /no matching record/)
+  }
 })
 
 test('email changes require authentication and reject cross-origin requests and rate-limited email', async () => {
