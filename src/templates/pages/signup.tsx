@@ -1,6 +1,6 @@
 import { BaseTemplate } from '../base'
 import type { TemplateData } from '../base'
-import type { SignupInput } from '../../handlers/models/users'
+import type { SignupInput } from '../../handlers/auth'
 
 export type SignupPageProps = TemplateData & {
   values?: Partial<SignupInput>
@@ -17,7 +17,7 @@ export function SignupPage({ values = {}, errors = {}, formErrors = [], ...templ
         {formErrors.map(message => <p role="alert">{message}</p>)}
         <div>
           <label htmlFor="name">Name</label>
-          <input id="name" name="name" autoComplete="name" required maxLength={100}
+          <input id="name" name="name" autoComplete="name" required
             value={values.name ?? ''} aria-invalid={errors.name ? 'true' : undefined}
             aria-describedby={errors.name ? 'name-errors' : undefined} />
           {errors.name && <div id="name-errors" role="alert">{errors.name.map(message => <p>{message}</p>)}</div>}

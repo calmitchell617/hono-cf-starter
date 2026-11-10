@@ -1,18 +1,20 @@
 import type { Child } from 'hono/jsx'
 import { Nav } from './partials/nav'
+import type { User } from '../handlers/models/users'
+import { anonymousUser } from '../handlers/models/users'
 
 export type TemplateData = {
-  isAuthenticated?: boolean
-  userId?: number | null
   flash?: string
+  currentUser?: User
 }
 
 type BaseTemplateProps = TemplateData & {
   title: string
   children: Child
+  showNav?: boolean
 }
 
-export function BaseTemplate({ title, children, isAuthenticated = false, flash }: BaseTemplateProps) {
+export function BaseTemplate({ title, children, currentUser = anonymousUser, flash, showNav = true }: BaseTemplateProps) {
   return (
     <html lang="en">
       <head>
@@ -22,7 +24,7 @@ export function BaseTemplate({ title, children, isAuthenticated = false, flash }
         <link rel="stylesheet" href="/nav.css" />
       </head>
       <body>
-        <Nav isAuthenticated={isAuthenticated} />
+        {showNav && <Nav currentUser={currentUser} />}
         <main>
           {flash && <p role="status">{flash}</p>}
           {children}

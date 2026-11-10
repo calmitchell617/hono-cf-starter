@@ -15,10 +15,13 @@ import type { SignupPageProps } from './pages/signup'
 import { LoginConfirmPage } from './pages/login-confirm'
 import { CheckEmailPage } from './pages/check-email'
 import { LoginLinkEmail } from './emails/login-link'
+import { EmailChangeEmail } from './emails/email-change'
+import { EmailChangeConfirmPage } from './pages/email-change-confirm'
+import type { EmailChangeConfirmPageProps } from './pages/email-change-confirm'
 import { SettingsPage } from './pages/settings'
 import type { SettingsPageProps } from './pages/settings'
 
-export function settingsPage(props: SettingsPageProps = {}, data: TemplateData = {}) {
+export function settingsPage(data: TemplateData = {}, props: SettingsPageProps = {}) {
   return render(() => <SettingsPage {...props} {...data} />)
 }
 
@@ -30,11 +33,11 @@ export function homePage(snippets: Snippet[], data: TemplateData = {}) {
   return render(() => <HomePage snippets={snippets} {...data} />)
 }
 
-export function createSnippetPage(props: CreateSnippetPageProps = {}, data: TemplateData = {}) {
+export function createSnippetPage(data: TemplateData = {}, props: CreateSnippetPageProps = {}) {
   return render(() => <CreateSnippetPage {...props} {...data} />)
 }
 
-export function editSnippetPage(id: number, props: SnippetFormValues = {}, data: TemplateData = {}) {
+export function editSnippetPage(id: number, data: TemplateData = {}, props: SnippetFormValues = {}) {
   return render(() => <EditSnippetPage id={id} {...props} {...data} />)
 }
 
@@ -42,11 +45,11 @@ export function errorPage(status: number, title: string, message: string, data: 
   return render(() => <ErrorPage status={status} title={title} message={message} {...data} />)
 }
 
-export function loginPage(props: LoginPageProps = {}, data: TemplateData = {}) {
+export function loginPage(data: TemplateData = {}, props: LoginPageProps = {}) {
   return render(() => <LoginPage {...props} {...data} />)
 }
 
-export function signupPage(props: SignupPageProps = {}, data: TemplateData = {}) {
+export function signupPage(data: TemplateData = {}, props: SignupPageProps = {}) {
   return render(() => <SignupPage {...props} {...data} />)
 }
 
@@ -60,4 +63,12 @@ export function checkEmailPage(data: TemplateData = {}) {
 
 export function loginLinkEmail(url: string, expiresIn: string) {
   return render(() => <LoginLinkEmail url={url} expiresIn={expiresIn} />)
+}
+
+export function emailChangeEmail(url: string, token: string, expiresIn: string) {
+  return render(() => <EmailChangeEmail url={url} token={token} expiresIn={expiresIn} />)
+}
+
+export function emailChangeConfirmPage(data: TemplateData = {}, props: EmailChangeConfirmPageProps = {}) {
+  return render(() => <EmailChangeConfirmPage {...props} {...data} />)
 }

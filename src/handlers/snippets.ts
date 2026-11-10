@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
 import * as templates from '../templates'
 import * as snippetsModel from './models/snippets'
 import { ErrEditConflict, ErrRecordNotFound } from './models/errors'
@@ -13,7 +13,7 @@ import * as users from './models/users'
 const app = new Hono<AppEnv>()
 
 app.get('/create', ...auth({ requireAuthenticated: true, requirePermission: 'snippets:create' }), async (c) => {
-  const [page, renderErr] = templates.createSnippetPage({}, await helpers.newTemplateData(c))
+  const [page, renderErr] = templates.createSnippetPage(await helpers.newTemplateData(c))
   if (renderErr !== null) {
     return errors.serverErrorResponse(c, renderErr)
   }
@@ -59,12 +59,22 @@ app.get('/:id', ...auth({ requireAuthenticated: true, requirePermission: 'snippe
   return c.html(page)
 })
 
-app.post('/create', ...auth({ requireAuthenticated: true, requirePermission: 'snippets:create' }), zValidator(
-  'form',
-  snippetsModel.snippetInputSchema,
-  helpers.formValidationHook(templates.createSnippetPage),
-), async (c) => {
-  const input = c.req.valid('form')
+const snippetInputSchema = z.object({
+  title: z.string().max(100, 'Use 100 characters or fewer').refine(value => value.trim() !== '', 'must not be empty'),
+  content: z.string().refine(value => value.trim() !== '', 'must not be empty'),
+})
+
+export type SnippetInput = z.infer<typeof snippetInputSchema>
+
+app.post('/create', ...auth({ requireAuthenticated: true, requirePermission: 'snippets:create' }), async (c) => {
+  const form = await c.req.parseBody({ all: true })
+  const result = snippetInputSchema.safeParse(form)
+  if (!result.success) {
+    const [page, err] = templates.createSnippetPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    if (err !== null) return errors.serverErrorResponse(c, err)
+    return c.html(page, 400)
+  }
+  const input = result.data
   const [snippet, err] = await snippetsModel.insert(c.env.MY_DB, input, c.var.user.id)
   if (err !== null) {
     return errors.serverErrorResponse(c, err)
@@ -101,18 +111,19 @@ app.get('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: 's
     return errors.notFoundResponse(c)
   }
 
-  const [page, renderErr] = templates.editSnippetPage(snippet.id, { values: snippet }, await helpers.newTemplateData(c))
+  const [page, renderErr] = templates.editSnippetPage(snippet.id, await helpers.newTemplateData(c), { values: snippet })
   if (renderErr !== null) return errors.serverErrorResponse(c, renderErr)
   return c.html(page)
 })
 
-app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: 'snippets:edit' }), zValidator(
-  'form',
-  snippetsModel.snippetInputSchema,
-  (result, c) => helpers.formValidationHook((props, data) => (
-    templates.editSnippetPage(Number(c.req.param('id')), props, data)
-  ))(result, c),
-), async (c) => {
+app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: 'snippets:edit' }), async (c) => {
+  const form = await c.req.parseBody({ all: true })
+  const result = snippetInputSchema.safeParse(form)
+  if (!result.success) {
+    const [page, err] = templates.editSnippetPage(Number(c.req.param('id')), await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    if (err !== null) return errors.serverErrorResponse(c, err)
+    return c.html(page, 400)
+  }
   const [id, idErr] = helpers.readIDParam(c.req)
   if (idErr !== null) return errors.clientErrorResponse(c, idErr)
 
@@ -139,7 +150,7 @@ app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: '
   if (snippet.user_id !== user.id && !user.roles.includes('admin')) {
     return errors.notFoundResponse(c)
   }
-  const [updatedSnippet, updateErr] = await snippetsModel.update(c.env.MY_DB, snippet, c.req.valid('form'))
+  const [updatedSnippet, updateErr] = await snippetsModel.update(c.env.MY_DB, snippet, result.data)
   if (updateErr !== null) {
     switch (updateErr) {
       case ErrEditConflict:

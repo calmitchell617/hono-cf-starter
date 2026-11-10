@@ -1,11 +1,10 @@
 import { z } from 'zod'
 import { ErrRecordNotFound } from './errors'
 
-export const tokenInputSchema = z.object({
-  token: z.string().regex(/^[a-f0-9]{64}$/, 'Invalid token'),
-})
+export const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/, 'Invalid token')
 
 export const authenticationScope = 'authentication'
+export const emailChangeScope = 'email-change'
 
 export type Token = {
   token: string

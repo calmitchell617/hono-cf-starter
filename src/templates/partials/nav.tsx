@@ -1,11 +1,13 @@
-export function Nav({ isAuthenticated }: { isAuthenticated: boolean }) {
+import type { User } from '../../handlers/models/users'
+
+export function Nav({ currentUser }: { currentUser: User }) {
   return (
     <nav aria-label="Main">
       Hono Cloudflare Starter
       {' '}<a href="/">Home</a>
-      {isAuthenticated && <>{' '}<a href="/snippets/create">Create snippet</a></>}
+      {!currentUser.isAnonymous() && <>{' '}<a href="/snippets/create">Create snippet</a></>}
       {' '}
-      {isAuthenticated ? (
+      {!currentUser.isAnonymous() ? (
         <>
           <a href="/settings">Settings</a>
           {' '}

@@ -3,21 +3,15 @@ import { ErrEditConflict, ErrRecordNotFound } from './errors'
 import type { Permission, PermissionChecks } from './permissions'
 import { hashToken } from './tokens'
 
-export const loginInputSchema = z.object({
-  email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254),
-})
+export const emailSchema = z.string().trim().toLowerCase().pipe(z.email({ error: 'Enter a valid email address' }).max(254, 'Use 254 characters or fewer'))
 
-export const signupInputSchema = loginInputSchema.extend({
-  name: z.string().trim().min(1, 'Enter your name').max(100, 'Use 100 characters or fewer'),
-})
-
-export const settingsInputSchema = signupInputSchema.pick({ name: true })
-
-export type SettingsInput = z.infer<typeof settingsInputSchema>
-
-export type LoginInput = z.infer<typeof loginInputSchema>
-export type SignupInput = z.infer<typeof signupInputSchema>
-type UserRow = SignupInput & { id: number; created_at: number; version: number }
+type UserRow = {
+  id: number
+  name: string
+  email: string
+  created_at: number
+  version: number
+}
 
 export class User {
   readonly id: number
@@ -96,13 +90,13 @@ export async function getByIDWithRoles(db: D1Database, id: number): Promise<[Use
   }
 }
 
-export async function updateName(db: D1Database, user: User, input: SettingsInput): Promise<[User, null] | [null, Error]> {
+export async function updateUser(db: D1Database, user: User): Promise<[User, null] | [null, Error]> {
   try {
     const updatedUser = await db.prepare(`
-      UPDATE users SET name = ?, version = version + 1
+      UPDATE users SET name = ?, email = ?, version = version + 1
       WHERE id = ? AND version = ?
       RETURNING id, name, email, created_at, version
-    `).bind(input.name, user.id, user.version).first<UserRow>()
+    `).bind(user.name, user.email, user.id, user.version).first<UserRow>()
     if (updatedUser === null) return [null, ErrEditConflict]
     return [new User(updatedUser), null]
   } catch (e) {
@@ -137,7 +131,7 @@ export async function getForToken(db: D1Database, scope: string, token: string):
   }
 }
 
-export async function insert(db: D1Database, input: SignupInput): Promise<[User, null] | [null, Error]> {
+export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>): Promise<[User, null] | [null, Error]> {
   try {
     const results = await db.batch<UserRow>([db.prepare(`
       INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)

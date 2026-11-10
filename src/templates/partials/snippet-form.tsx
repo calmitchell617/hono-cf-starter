@@ -1,4 +1,4 @@
-import type { SnippetInput } from '../../handlers/models/snippets'
+import type { SnippetInput } from '../../handlers/snippets'
 
 export type SnippetFormValues = {
   values?: Partial<SnippetInput>
@@ -21,7 +21,6 @@ export function SnippetForm({ action, submitLabel, values = {}, errors = {}, for
           id="title"
           name="title"
           type="text"
-          maxLength={100}
           value={values.title ?? ''}
           aria-invalid={errors.title ? 'true' : undefined}
           aria-describedby={errors.title ? 'title-errors' : undefined}

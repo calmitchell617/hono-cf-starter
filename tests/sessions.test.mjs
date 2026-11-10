@@ -96,11 +96,12 @@ async function request(app, path, options = {}, bindings = {}) {
 const cookieOf = response => response.headers.getSetCookie().find(value => value.startsWith('sid=')).split(';')[0]
 const login = () => request(fixture, '/login', { method: 'POST' })
 
-test('login stores data in KV and sends an encrypted cookie using the package defaults', async () => {
+test('login stores data in KV and sends an encrypted Secure cookie', async () => {
   const response = await login()
   assert.equal(response.status, 303)
   const cookie = cookieOf(response)
   assert.match(response.headers.get('set-cookie'), /HttpOnly/)
+  assert.match(response.headers.get('set-cookie'), /; Secure(?:;|$)/)
   assert.match(response.headers.get('set-cookie'), /SameSite=Lax/i)
   assert.ok(!response.headers.get('set-cookie').includes('Max-Age='))
   const { keys } = await kv.list()
@@ -190,7 +191,7 @@ test('HTTP development can set a session cookie', async () => {
 test('pages, validation and business writes work without a D1 sessions table', async () => {
   assert.equal(await db.prepare("SELECT name FROM sqlite_master WHERE name = 'sessions'").first(), null)
   const { token } = await signup()
-  const cookie = cookieOf(await postForm('/login', { token }))
+  const cookie = cookieOf(await postForm('/login/confirm', { token }))
   const response = await request(application, '/snippets/create', { headers: { cookie } })
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('x-frame-options'), 'DENY')
@@ -223,7 +224,7 @@ async function signup(email = 'reader@example.com', name = 'Reader') {
 
 async function signedIn(email = 'owner@example.com') {
   const { token } = await signup(email)
-  return cookieOf(await postForm('/login', { token }))
+  return cookieOf(await postForm('/login/confirm', { token }))
 }
 
 async function grantAdmin(email) {
@@ -270,12 +271,13 @@ test('the chains load requested permissions and snippet handlers load roles sepa
     ['/settings', null, 1, 200],
     [snippetPath, null, 3, 200],
     [`${snippetPath}/edit`, ['snippets:edit'], 3, 200],
-    ['/missing', [], 1, 404],
+    ['/missing', [], 0, 404],
   ]) {
     queries.length = 0
     const response = await request(application, path, { headers: { cookie } }, bindings)
     assert.equal(response.status, status, path)
     assert.equal(queries.length, queryCount, path)
+    if (queryCount === 0) continue
     assert.deepEqual(queries[0].params, codes === null || codes.length === 0 ? [userId] : [JSON.stringify(codes), userId], path)
     assert.doesNotMatch(queries[0].sql, /EXISTS|JOIN roles|isAdmin/, path)
     if (codes?.length === 0) assert.doesNotMatch(queries[0].sql, /permissions|user_roles|isAdmin/, path)
@@ -519,7 +521,7 @@ test('public users cannot assign roles through signup or profile fields', async 
   const response = await postForm('/signup', { name: 'Reader', email: 'reader@example.com', role: 'admin' })
   assert.equal(response.status, 303)
   const url = new URL(sentEmails.at(-1).text.match(/https:\/\/[^\s]+/)[0])
-  const cookie = cookieOf(await postForm('/login', { token: url.searchParams.get('token') }))
+  const cookie = cookieOf(await postForm('/login/confirm', { token: url.searchParams.get('token') }))
   await postForm('/settings', { name: 'New name', role: 'admin' }, { cookie })
   assert.equal((await postForm('/settings/admins', { email: 'reader@example.com' }, { cookie })).status, 403)
   const count = await db.prepare(`SELECT COUNT(*) FROM user_roles
@@ -578,7 +580,7 @@ test('flash survives redirects and error responses and appears once on the next 
   const cookie = await signedIn()
   await postForm('/settings', { name: 'Changed' }, { cookie })
   // Redirecting to the email confirmation page must not consume the flash.
-  assert.equal((await postForm('/login/link', { email: 'owner@example.com' }, { cookie })).status, 303)
+  assert.equal((await postForm('/login', { email: 'owner@example.com' }, { cookie })).status, 303)
   assert.equal((await request(application, '/missing', { headers: { cookie } })).status, 404)
   const home = await request(application, '/', { headers: { cookie } })
   assert.match(await home.text(), /role="status">Name updated\./)
@@ -617,16 +619,16 @@ test('user updates increment the version and reject stale records', async () => 
   const [original, readErr] = await usersModel.getByEmail(db, 'reader@example.com')
   assert.equal(readErr, null)
   assert.equal(original.version, 1)
-  const [updated, updateErr] = await usersModel.updateName(db, original, { name: 'First edit' })
+  const [updated, updateErr] = await usersModel.updateUser(db, new usersModel.User({ ...original, name: 'First edit' }))
   assert.equal(updateErr, null)
   assert.equal(updated.version, 2)
-  const [stale, conflict] = await usersModel.updateName(db, original, { name: 'Stale edit' })
+  const [stale, conflict] = await usersModel.updateUser(db, new usersModel.User({ ...original, name: 'Stale edit' }))
   assert.equal(stale, null)
   assert.match(conflict.message, /edit conflict/)
   const [current] = await usersModel.getByID(db, original.id)
   assert.equal(current.name, 'First edit')
   assert.equal(current.version, 2)
-  const [next, nextErr] = await usersModel.updateName(db, current, { name: 'Next edit' })
+  const [next, nextErr] = await usersModel.updateUser(db, new usersModel.User({ ...current, name: 'Next edit' }))
   assert.equal(nextErr, null)
   assert.equal(next.version, 3)
 })
@@ -814,14 +816,14 @@ test('cross-origin requests cannot create or edit snippets', async () => {
 
 test('navigation follows the session across pages, validation errors, and logout', async () => {
   const { token } = await signup()
-  const cookie = cookieOf(await postForm('/login', { token }))
+  const cookie = cookieOf(await postForm('/login/confirm', { token }))
   let writes = 0
   const readOnlyKV = {
     get: (...args) => kv.get(...args),
     put: (...args) => { writes++; return kv.put(...args) },
     delete: (...args) => { writes++; return kv.delete(...args) },
   }
-  for (const path of ['/', '/snippets/create', '/login', '/signup', '/login/check-email', '/missing', '/snippets/999999']) {
+  for (const path of ['/', '/snippets/create', '/login', '/signup', '/login/check-email']) {
     const response = await request(application, path, { headers: { cookie } }, { SESSION_KV: readOnlyKV })
     const html = await response.text()
     assert.match(html, /<form action="\/logout" method="post">/)
@@ -850,8 +852,8 @@ test('navigation follows the session across pages, validation errors, and logout
 test('the login and create-account pages render and validate fields inline', async () => {
   const loginPage = await request(application, '/login')
   assert.equal(loginPage.status, 200)
-  assert.match(await loginPage.text(), /action="\/login\/link"/)
-  const invalidLogin = await postForm('/login/link', { email: 'not an email' })
+  assert.match(await loginPage.text(), /action="\/login"/)
+  const invalidLogin = await postForm('/login', { email: 'not an email' })
   assert.equal(invalidLogin.status, 400)
   assert.match(await invalidLogin.text(), /id="email-errors"/)
   const invalidSignup = await postForm('/signup', { name: ' ', email: 'reader@example.com' })
@@ -863,16 +865,26 @@ test('the login and create-account pages render and validate fields inline', asy
   assert.equal((await db.prepare('SELECT COUNT(*) FROM users').first('COUNT(*)')), 0)
 })
 
-test('an unknown login email redirects to create account without issuing a token or session', async () => {
-  const response = await postForm('/login/link', { email: ' New@Example.com ' })
+test('an unknown login email redirects to signup with a one-time flash and prefilled email field', async () => {
+  const response = await postForm('/login', { email: ' New@Example.com ' })
   assert.equal(response.status, 303)
   assert.equal(response.headers.get('location'), '/signup?email=new%40example.com')
-  const page = await request(application, response.headers.get('location'))
-  assert.match(await page.text(), /value="new@example.com"/)
+  const cookie = cookieOf(response)
+  const page = await request(application, response.headers.get('location'), { headers: { cookie } })
+  const html = await page.text()
+  assert.match(html, /No account found with that email address\. Please create an account below\./)
+  assert.match(html, /name="email"[^>]*value="new@example.com"/)
+  assert.match(html, /href="\/login">Log in/)
+  const next = await request(application, '/signup', { headers: { cookie } })
+  assert.doesNotMatch(await next.text(), /No account found with that email address/)
+  const queryPage = await request(application, '/signup?email=new%40example.com')
+  assert.match(await queryPage.text(), /name="email"[^>]*value="new@example.com"/)
   assert.equal(sentEmails.length, 0)
   assert.equal((await db.prepare('SELECT COUNT(*) FROM users').first('COUNT(*)')), 0)
   assert.equal((await db.prepare('SELECT COUNT(*) FROM tokens').first('COUNT(*)')), 0)
-  assert.equal((await kv.list()).keys.length, 0)
+  const { keys } = await kv.list()
+  assert.equal(keys.length, 1)
+  assert.deepEqual(await kv.get(keys[0].name, 'json'), {})
 })
 
 test('signup emails a 15-minute hashed login token without authenticating the user', async () => {
@@ -952,7 +964,7 @@ test('getForToken returns a full user and rejects wrong-scope, consumed, and exp
   const [wrongScope, scopeErr] = await usersModel.getForToken(db, 'password-reset', token)
   assert.equal(wrongScope, null)
   assert.match(scopeErr.message, /no matching record/)
-  assert.equal((await postForm('/login', { token })).status, 303)
+  assert.equal((await postForm('/login/confirm', { token })).status, 303)
   const [consumed, consumeErr] = await usersModel.getForToken(db, 'authentication', token)
   assert.equal(consumed, null)
   assert.match(consumeErr.message, /no matching record/)
@@ -973,7 +985,7 @@ test('GET and HEAD of an emailed link only render a POST form and never consume 
     assert.match(response.headers.get('set-cookie'), /sid=/)
     if (method === 'GET') {
       const html = await response.text()
-      assert.match(html, /id="login-confirm" action="\/login" method="post"/)
+      assert.match(html, /id="login-confirm" action="\/login\/confirm" method="post"/)
       assert.ok(html.includes(`name="token" value="${token}"`))
       assert.match(html, /src="\/login-confirm.js" defer/)
     }
@@ -984,15 +996,16 @@ test('GET and HEAD of an emailed link only render a POST form and never consume 
 
 test('only a valid POST consumes the token and creates an authenticated KV session', async () => {
   const { token } = await signup()
-  const response = await postForm('/login', { token })
+  const response = await postForm('/login/confirm', { token })
   assert.equal(response.status, 303)
   assert.equal(response.headers.get('location'), '/')
+  assert.match(response.headers.get('set-cookie'), /; Secure(?:;|$)/)
   const user = await db.prepare('SELECT id FROM users').first()
   const { keys } = await kv.list()
   assert.equal(keys.length, 1)
   assert.deepEqual(await kv.get(keys[0].name, 'json'), { userId: user.id })
   assert.equal((await db.prepare('SELECT COUNT(*) FROM tokens').first('COUNT(*)')), 0)
-  const replay = await postForm('/login', { token }, { cookie: cookieOf(response) })
+  const replay = await postForm('/login/confirm', { token }, { cookie: cookieOf(response) })
   assert.equal(replay.status, 400)
   assert.deepEqual(replay.headers.getSetCookie(), [])
   assert.deepEqual(await kv.get(keys[0].name, 'json'), { userId: user.id })
@@ -1003,7 +1016,7 @@ test('only a valid POST consumes the token and creates an authenticated KV sessi
 
 test('concurrent POSTs can use a login token only once', async () => {
   const { token } = await signup()
-  const responses = await Promise.all([postForm('/login', { token }), postForm('/login', { token })])
+  const responses = await Promise.all([postForm('/login/confirm', { token }), postForm('/login/confirm', { token })])
   assert.deepEqual(responses.map(r => r.status).sort(), [303, 400])
   const rejectedCookie = cookieOf(responses.find(r => r.status === 400))
   const anonymous = await request(application, '/', { headers: { cookie: rejectedCookie } })
@@ -1016,9 +1029,9 @@ test('expired and malformed tokens cannot create a session', async () => {
   const { url, token } = await signup()
   await db.prepare('UPDATE tokens SET expires_at = ?').bind(Date.now() - 1).run()
   assert.equal((await request(application, url.pathname + url.search)).status, 400)
-  assert.equal((await postForm('/login', { token })).status, 400)
-  assert.equal((await postForm('/login', { token: 'invalid' })).status, 400)
-  assert.equal((await postForm('/login', {})).status, 400)
+  assert.equal((await postForm('/login/confirm', { token })).status, 400)
+  assert.equal((await postForm('/login/confirm', { token: 'invalid' })).status, 400)
+  assert.equal((await postForm('/login/confirm', {})).status, 400)
   assert.equal((await kv.list()).keys.length, 0)
 })
 
@@ -1026,16 +1039,16 @@ test('cross-origin POSTs cannot send email, consume tokens, or log users out', a
   assert.equal((await postForm('/signup', { name: 'Reader', email: 'reader@example.com' }, { origin: 'https://evil.example' })).status, 403)
   assert.equal(sentEmails.length, 0)
   const { token } = await signup()
-  assert.equal((await postForm('/login', { token }, { origin: 'https://evil.example' })).status, 403)
+  assert.equal((await postForm('/login/confirm', { token }, { origin: 'https://evil.example' })).status, 403)
   assert.equal((await db.prepare('SELECT COUNT(*) FROM tokens').first('COUNT(*)')), 1)
-  const response = await postForm('/login', { token })
+  const response = await postForm('/login/confirm', { token })
   assert.equal((await postForm('/logout', {}, { origin: 'https://evil.example', cookie: cookieOf(response) })).status, 403)
   assert.equal((await kv.list()).keys.length, 1)
 })
 
 test('same-origin browser navigation can log in when no-referrer makes the Origin header null', async () => {
   const { token } = await signup()
-  const response = await postForm('/login', { token }, { origin: 'null', 'sec-fetch-site': 'same-origin' })
+  const response = await postForm('/login/confirm', { token }, { origin: 'null', 'sec-fetch-site': 'same-origin' })
   assert.equal(response.status, 303)
   assert.equal((await kv.list()).keys.length, 1)
 })
@@ -1051,7 +1064,7 @@ test('email failure removes the newly generated token', async () => {
 
 test('login requests for existing accounts send email, and repeated signup preserves their name', async () => {
   await signup()
-  assert.equal((await postForm('/login/link', { email: 'reader@example.com' })).status, 303)
+  assert.equal((await postForm('/login', { email: 'reader@example.com' })).status, 303)
   assert.equal(sentEmails.length, 2)
   assert.equal((await postForm('/signup', { name: 'Changed', email: 'reader@example.com' })).status, 303)
   assert.equal((await db.prepare('SELECT name FROM users').first()).name, 'Reader')
@@ -1079,6 +1092,7 @@ test('oversized auth forms are rejected after rate limiting but before session o
     assert.match(await response.text(), /The submitted form is too large/)
     assert.equal(response.headers.get('set-cookie'), null)
     assert.equal(response.headers.get('x-frame-options'), 'DENY')
+    assert.equal(response.headers.get('cache-control'), 'no-store')
   }
   assert.equal(rateLimitCalls, 2)
   const limited = await request(application, '/signup', {
@@ -1123,17 +1137,17 @@ test('rate-limited email addresses do not issue tokens or send email', async () 
 
 test('an existing session is cleared before login creates a fresh session ID', async () => {
   const first = await signup('first@example.com', 'First')
-  const firstLogin = await postForm('/login', { token: first.token })
+  const firstLogin = await postForm('/login/confirm', { token: first.token })
   const firstCookie = cookieOf(firstLogin)
   const firstKey = (await kv.list()).keys[0].name
   const second = await signup('second@example.com', 'Second')
-  const clear = await postForm('/login', { token: second.token }, { cookie: firstCookie })
+  const clear = await postForm('/login/confirm', { token: second.token }, { cookie: firstCookie })
   assert.equal(clear.status, 303)
   assert.equal(clear.headers.get('location'), `/login/confirm?token=${second.token}`)
   assert.match(clear.headers.get('set-cookie'), /Max-Age=0/)
   assert.equal((await kv.list()).keys.length, 0)
   assert.equal((await db.prepare('SELECT COUNT(*) FROM tokens').first('COUNT(*)')), 1)
-  const secondLogin = await postForm('/login', { token: second.token })
+  const secondLogin = await postForm('/login/confirm', { token: second.token })
   assert.equal(secondLogin.status, 303)
   const newKey = (await kv.list()).keys[0].name
   assert.notEqual(newKey, firstKey)
@@ -1154,4 +1168,309 @@ test('request logging does not include tokens or email query parameters', async 
   }
   assert.ok(lines.some(line => line.includes('/login/confirm')))
   assert.ok(lines.every(line => !line.includes(token) && !line.includes('private%40example.com')))
+})
+
+test('404 pages show a Home button without account navigation', async () => {
+  const cookie = await signedIn()
+  for (const headers of [{}, { cookie }]) {
+    for (const path of headers.cookie ? ['/missing', '/snippets/999999'] : ['/missing']) {
+      const response = await request(application, path, { headers })
+      assert.equal(response.status, 404)
+      const html = await response.text()
+      assert.match(html, /404 - Not Found/)
+      assert.doesNotMatch(html, /<nav|action="\/logout"|href="\/login"|href="\/signup"/)
+      assert.match(html, /<form action="\/" method="get"><button type="submit">Home<\/button>/)
+      assert.doesNotMatch(html, /Go back|<script/)
+      assert.deepEqual(response.headers.getSetCookie(), [])
+    }
+  }
+})
+
+const emailChangeURL = () => new URL(sentEmails.at(-1).text.match(/https:\/\/[^\s]+/)[0])
+const confirmEmail = (url, cookie, email = 'new@example.com') => postForm('/settings/email/confirm', {
+  token: url.searchParams.get('token') ?? '', email,
+}, { cookie })
+
+test('changing email sends a token to the current address and redirects to a form', async () => {
+  const cookie = await signedIn()
+  const response = await postForm('/settings/email', { email: 'ignored@example.com' }, { cookie })
+  assert.equal(response.status, 303)
+  assert.equal(response.headers.get('location'), '/settings/email/confirm')
+  assert.equal(sentEmails.at(-1).to, 'owner@example.com')
+  const url = emailChangeURL()
+  const token = url.searchParams.get('token')
+  assert.match(sentEmails.at(-1).html, new RegExp(`<code>${token}</code>`))
+  assert.match(sentEmails.at(-1).text, new RegExp(`Your token: ${token}`))
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+  const pending = await db.prepare("SELECT * FROM tokens WHERE scope = 'email-change'").first()
+  assert.deepEqual(Object.keys(pending).sort(), ['expires_at', 'hash', 'scope', 'user_id'])
+  assert.equal(pending.hash, createHash('sha256').update(token).digest('hex'))
+  const blank = await request(application, '/settings/email/confirm', { headers: { cookie } })
+  const blankHTML = await blank.text()
+  assert.equal(blank.status, 200)
+  assert.match(blankHTML, /We emailed a token to your current email address/)
+  assert.match(blankHTML, /name="email"/)
+  assert.match(blankHTML, /name="token"[^>]*value=""/)
+  for (const method of ['GET', 'HEAD']) {
+    const preview = await request(application, url.pathname + url.search, { method, headers: { cookie } })
+    assert.equal(preview.status, 200)
+    if (method === 'GET') {
+      const html = await preview.text()
+      assert.match(html, /action="\/settings\/email\/confirm" method="post"/)
+      assert.match(html, new RegExp(`value="${token}"`))
+      assert.doesNotMatch(html, /<script/)
+    }
+    assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+    assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 1)
+  }
+})
+
+test('submitting a valid email-change token updates the address and flashes once', async () => {
+  const cookie = await signedIn()
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  await postForm('/login', { email: 'owner@example.com' })
+  const response = await confirmEmail(url, cookie, ' NEW@EXAMPLE.COM ')
+  assert.equal(response.status, 303)
+  assert.equal(response.headers.get('location'), '/settings')
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'new@example.com')
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 0)
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'authentication'").first('n'), 1)
+  const page = await request(application, '/settings', { headers: { cookie } })
+  const html = await page.text()
+  assert.match(html, /Email address updated\./)
+  assert.match(html, /Current email address: new@example.com/)
+  assert.doesNotMatch(await (await request(application, '/settings', { headers: { cookie } })).text(), /Email address updated\./)
+  const replay = await confirmEmail(url, cookie, 'another@example.com')
+  assert.equal(replay.status, 400)
+  assert.match(await replay.text(), /invalid, expired, or already used/)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'new@example.com')
+})
+
+test('email changes require authentication and reject cross-origin requests and rate-limited email', async () => {
+  assert.equal((await postForm('/settings/email', {})).headers.get('location'), '/login')
+  assert.equal((await request(application, '/settings/email/confirm')).headers.get('location'), '/login')
+  assert.equal((await postForm('/settings/email/confirm', {})).headers.get('location'), '/login')
+  const cookie = await signedIn()
+  const emailCount = sentEmails.length
+  assert.equal((await postForm('/settings/email', {}, { cookie, origin: 'https://evil.example' })).status, 403)
+  const limited = await postForm('/settings/email', {}, { cookie }, {
+    LOGIN_RATE_LIMIT: { async limit({ key }) { assert.equal(key, 'email:owner@example.com'); return { success: false } } },
+  })
+  assert.equal(limited.status, 429)
+  assert.equal(sentEmails.length, emailCount)
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 0)
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  const rejected = await postForm('/settings/email/confirm', {
+    token: url.searchParams.get('token'), email: 'new@example.com',
+  }, { cookie, origin: 'https://evil.example' })
+  assert.equal(rejected.status, 403)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+})
+
+test('email-change forms validate the new address and token without consuming a valid token', async () => {
+  const cookie = await signedIn()
+  await signedIn('taken@example.com')
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  for (const email of ['', 'invalid', 'owner@example.com', 'TAKEN@EXAMPLE.COM']) {
+    const response = await confirmEmail(url, cookie, email)
+    assert.equal(response.status, 400)
+    assert.match(await response.text(), /id="new-email-errors"/)
+  }
+  for (const token of ['', 'invalid', '0'.repeat(64), url.searchParams.get('token') + 'x']) {
+    const response = await postForm('/settings/email/confirm', { email: 'new@example.com', token }, { cookie })
+    assert.equal(response.status, 400)
+    const html = await response.text()
+    assert.match(html, /id="email-token-errors"/)
+    assert.match(html, /value="new@example.com"/)
+  }
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 1)
+  assert.equal((await confirmEmail(url, cookie)).status, 303)
+})
+
+test('email-change tokens belong to the requesting user and each request has its own token', async () => {
+  const cookie = await signedIn()
+  const otherCookie = await signedIn('other@example.com')
+  await postForm('/settings/email', {}, { cookie })
+  const oldURL = emailChangeURL()
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  assert.equal((await confirmEmail(url, otherCookie)).status, 400)
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 2)
+  assert.equal((await confirmEmail(oldURL, cookie)).status, 303)
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 1)
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM users WHERE email = ?').bind('new@example.com').first('n'), 1)
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM users WHERE email = ?').bind('other@example.com').first('n'), 1)
+})
+
+test('expired and wrong-scope tokens cannot change an email address', async () => {
+  const cookie = await signedIn()
+  await postForm('/settings/email', {}, { cookie })
+  const expiredURL = emailChangeURL()
+  await db.prepare("UPDATE tokens SET expires_at = ? WHERE scope = 'email-change'").bind(Date.now() - 1).run()
+  assert.equal((await confirmEmail(expiredURL, cookie)).status, 400)
+  await postForm('/login', { email: 'owner@example.com' })
+  assert.equal((await confirmEmail(emailChangeURL(), cookie)).status, 400)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+})
+
+test('email delivery failure removes the email-change token and leaves the address unchanged', async () => {
+  const cookie = await signedIn()
+  const response = await postForm('/settings/email', {}, { cookie }, {
+    EMAIL: { async send() { throw new Error('Email unavailable') } },
+  })
+  assert.equal(response.status, 500)
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 0)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+})
+
+test('concurrent email-change submissions consume the token once', async () => {
+  const cookie = await signedIn()
+  const original = await db.prepare('SELECT version FROM users').first()
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  const responses = await Promise.all([
+    postForm('/settings/email/confirm', { token: url.searchParams.get('token'), email: 'first@example.com' }, {
+      cookie, origin: 'null', 'sec-fetch-site': 'same-origin',
+    }),
+    confirmEmail(url, cookie, 'second@example.com'),
+  ])
+  assert.deepEqual(responses.map(response => response.status).sort(), [303, 400])
+  const updated = await db.prepare('SELECT email, version FROM users').first()
+  assert.ok(['first@example.com', 'second@example.com'].includes(updated.email))
+  assert.equal(updated.version, original.version + 1)
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM tokens').first('n'), 0)
+})
+
+
+test('authentication and template rendering share one session read, including when consuming flash', async () => {
+  const cookie = await signedIn()
+  let reads = 0
+  let writes = 0
+  const countedKV = {
+    get: (...args) => { reads++; return kv.get(...args) },
+    put: (...args) => { writes++; return kv.put(...args) },
+    delete: (...args) => kv.delete(...args),
+  }
+  for (const withFlash of [false, true]) {
+    if (withFlash) await postForm('/settings', { name: 'Updated name' }, { cookie })
+    reads = 0
+    writes = 0
+    const response = await request(application, '/settings', { headers: { cookie } }, { SESSION_KV: countedKV })
+    assert.equal(response.status, 200)
+    const html = await response.text()
+    assert.equal(html.includes('Name updated.'), withFlash)
+    assert.equal(reads, 1)
+    assert.equal(writes, withFlash ? 1 : 0)
+  }
+  assert.doesNotMatch(await (await request(application, '/settings', { headers: { cookie } })).text(), /Name updated\./)
+})
+
+
+test('cross-origin auth forms are rejected with no-cache headers before session or database reads', async () => {
+  const cookie = await signedIn()
+  const bindings = {
+    SESSION_KV: {
+      get() { throw new Error('Rejected requests must not read sessions') },
+      put() { throw new Error('Rejected requests must not write sessions') },
+      delete() { throw new Error('Rejected requests must not delete sessions') },
+    },
+    MY_DB: { prepare() { throw new Error('Rejected requests must not query the database') } },
+  }
+  const response = await postForm('/signup', { name: 'Reader', email: 'reader@example.com' }, {
+    cookie, origin: 'https://evil.example',
+  }, bindings)
+  assert.equal(response.status, 403)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.equal(response.headers.get('set-cookie'), null)
+})
+
+test('signup accepts a 100-character name and rejects a 101-character name with an inline error', async () => {
+  const page = await request(application, '/signup')
+  assert.doesNotMatch(await page.text(), /name="name"[^>]*maxlength=/i)
+  const accepted = await postForm('/signup', { name: 'x'.repeat(100), email: 'hundred@example.com' })
+  assert.equal(accepted.status, 303)
+  assert.equal((await db.prepare('SELECT name FROM users').first()).name.length, 100)
+  const rejected = await postForm('/signup', { name: 'x'.repeat(101), email: 'too-long@example.com' })
+  assert.equal(rejected.status, 400)
+  const html = await rejected.text()
+  assert.match(html, /id="name-errors"/)
+  assert.match(html, /Use 100 characters or fewer/)
+  assert.ok(html.includes(`value="${'x'.repeat(101)}"`))
+  assert.equal(sentEmails.length, 1)
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n'), 1)
+})
+
+
+test('settings and snippet forms preserve overlong values, show errors, and do not silently truncate input', async () => {
+  const cookie = await signedIn()
+  await grantAdmin('owner@example.com')
+  const limitName = 'n'.repeat(100)
+  const longName = 'n'.repeat(101)
+  assert.equal((await postForm('/settings', { name: limitName }, { cookie })).status, 303)
+  const invalidName = await postForm('/settings', { name: longName }, { cookie })
+  assert.equal(invalidName.status, 400)
+  const nameHTML = await invalidName.text()
+  assert.match(nameHTML, /Use 100 characters or fewer/)
+  assert.ok(nameHTML.includes(`value="${longName}"`))
+  assert.equal((await db.prepare('SELECT name FROM users').first()).name, limitName)
+
+  const limitTitle = 't'.repeat(100)
+  const longTitle = 't'.repeat(101)
+  const created = await postForm('/snippets/create', { title: limitTitle, content: 'Original content' }, { cookie })
+  assert.equal(created.status, 303)
+  const snippetPath = created.headers.get('location')
+  for (const path of ['/snippets/create', `${snippetPath}/edit`]) {
+    const response = await postForm(path, { title: longTitle, content: 'Keep this content' }, { cookie })
+    assert.equal(response.status, 400)
+    const html = await response.text()
+    assert.match(html, /id="title-errors"/)
+    assert.match(html, /Use 100 characters or fewer/)
+    assert.ok(html.includes(`value="${longTitle}"`))
+    assert.match(html, /Keep this content/)
+  }
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM snippets').first('n'), 1)
+  const snippet = await db.prepare('SELECT title, content FROM snippets').first()
+  assert.equal(snippet.title, limitTitle)
+  assert.equal(snippet.content, 'Original content')
+
+  for (const path of ['/signup', '/login', '/settings', '/settings/email/confirm', '/snippets/create', `${snippetPath}/edit`]) {
+    const page = await request(application, path, { headers: { cookie } })
+    assert.equal(page.status, 200)
+    assert.doesNotMatch(await page.text(), /maxlength=/i)
+  }
+})
+
+test('every email form rejects an overlong address without sending mail or changing records', async () => {
+  const cookie = await signedIn()
+  await grantAdmin('owner@example.com')
+  await postForm('/settings/email', {}, { cookie })
+  const url = emailChangeURL()
+  const email = `${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(62)}`
+  assert.equal(email.length, 255)
+  const emailCount = sentEmails.length
+  const cases = [
+    ['/login', { email }, 'email-errors'],
+    ['/signup', { name: 'Reader', email }, 'email-errors'],
+    ['/settings/admins', { email }, 'admin-email-errors'],
+    ['/settings/email/confirm', { email, token: url.searchParams.get('token') }, 'new-email-errors'],
+  ]
+  for (const [path, form, errorID] of cases) {
+    const response = await postForm(path, form, { cookie })
+    assert.equal(response.status, 400, path)
+    const html = await response.text()
+    assert.ok(html.includes(`id="${errorID}"`), path)
+    assert.match(html, /Use 254 characters or fewer/)
+    assert.ok(html.includes(`value="${email}"`), path)
+  }
+  assert.equal(sentEmails.length, emailCount)
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM users').first('n'), 1)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, 'owner@example.com')
+  assert.equal(await db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE scope = 'email-change'").first('n'), 1)
+  const limitEmail = email.slice(0, -1)
+  assert.equal(limitEmail.length, 254)
+  assert.equal((await confirmEmail(url, cookie, limitEmail)).status, 303)
+  assert.equal((await db.prepare('SELECT email FROM users').first()).email, limitEmail)
 })

@@ -2,12 +2,10 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { csrf } from 'hono/csrf'
-import { useSession } from '@hono/session'
 import snippets from './handlers/snippets'
 import home from './handlers/home'
 import * as errors from './handlers/errors'
-import { securityHeaders, rateLimit, sessionStorageMiddleware } from './middleware'
-import type { SessionValues } from './middleware'
+import { securityHeaders, rateLimit, sessionStorageMiddleware, sessionMiddleware } from './middleware'
 import type { AppEnv } from './env'
 import authRoutes from './handlers/auth'
 import settings from './handlers/settings'
@@ -19,9 +17,8 @@ const standard = [
   securityHeaders,
 ] as const
 const dynamic = [
-  rateLimit,
   sessionStorageMiddleware,
-  useSession<SessionValues>(),
+  sessionMiddleware,
   csrf(),
 ] as const
 
@@ -42,6 +39,7 @@ app.onError((err, c) => {
 })
 
 const routes = new Hono<AppEnv>()
+routes.use('*', rateLimit)
 routes.route('/', home)
 routes.route('/', authRoutes)
 routes.route('/snippets', snippets)

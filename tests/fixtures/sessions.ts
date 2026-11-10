@@ -1,12 +1,10 @@
 import { Hono } from 'hono'
-import { useSession } from '@hono/session'
 import type { AppEnv } from '../../src/env'
-import { sessionStorageMiddleware } from '../../src/middleware'
-import type { SessionValues } from '../../src/middleware'
+import { sessionStorageMiddleware, sessionMiddleware } from '../../src/middleware'
 
 const app = new Hono<AppEnv>()
 app.use('*', sessionStorageMiddleware)
-app.use('*', useSession<SessionValues>())
+app.use('*', sessionMiddleware)
 
 app.post('/login', async c => {
   await c.var.session.update({ userId: 123 })

@@ -1,9 +1,11 @@
 import { secureHeaders } from 'hono/secure-headers'
 import { useSession, useSessionStorage } from '@hono/session'
 import { createMiddleware } from 'hono/factory'
+import type { Context } from 'hono'
 import type { AppEnv } from './env'
 import { csrf } from 'hono/csrf'
 import { bodyLimit } from 'hono/body-limit'
+import { setCookie } from 'hono/cookie'
 import { rateLimitResponse } from './handlers/errors'
 import * as errors from './handlers/errors'
 import * as permissionsModel from './handlers/models/permissions'
@@ -39,30 +41,55 @@ export type SessionValues = {
   flash?: string
 }
 
+export const sessionMiddleware = useSession<SessionValues>({
+  setCookie(c, name, value, options) {
+    const url = new URL(c.req.url)
+    const localHTTP = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    setCookie(c, name, value, { ...options, secure: !localHTTP })
+  },
+})
+
 // KV storage pattern from Hono's session example, including background writes and the 30-day TTL:
 // https://github.com/honojs/middleware/blob/main/packages/session/examples/cloudflare-kv.ts
-export const sessionStorageMiddleware = useSessionStorage<SessionValues, AppEnv>((c) => ({
-  delete(sid) {
-    c.executionCtx.waitUntil(c.env.SESSION_KV.delete(sid))
-  },
-  get(sid) {
-    return c.env.SESSION_KV.get<SessionValues>(sid, 'json')
-  },
-  set(sid, data) {
-    c.executionCtx.waitUntil(
-      c.env.SESSION_KV.put(sid, JSON.stringify(data), {
-        expirationTtl: 2_592_000,
-      }),
-    )
-  },
-}))
+export const sessionStorageMiddleware = useSessionStorage<SessionValues, AppEnv>((c) => {
+  const loaded = new Map<string, Promise<SessionValues | null>>()
+  return {
+    delete(sid) {
+      loaded.set(sid, Promise.resolve(null))
+      c.executionCtx.waitUntil(c.env.SESSION_KV.delete(sid))
+    },
+    get(sid) {
+      const session = loaded.get(sid) ?? c.env.SESSION_KV.get<SessionValues>(sid, 'json')
+      loaded.set(sid, session)
+      return session
+    },
+    set(sid, data) {
+      loaded.set(sid, Promise.resolve(data))
+      c.executionCtx.waitUntil(
+        c.env.SESSION_KV.put(sid, JSON.stringify(data), {
+          expirationTtl: 2_592_000,
+        }),
+      )
+    },
+  }
+})
 
-const loginBodyLimit = bodyLimit({
+export async function popSessionString<E extends AppEnv>(c: Context<E>, key: keyof SessionValues): Promise<string> {
+  const value = (await c.var.session.get())?.[key]
+  if (typeof value !== 'string') return ''
+  await c.var.session.update((previous: SessionValues | null) => {
+    const { [key]: removed, ...data } = previous ?? {}
+    return data
+  })
+  return value
+}
+
+export const loginBodyLimit = bodyLimit({
   maxSize: 4096,
   onError: c => errors.clientErrorResponse(c, new Error('The submitted form is too large')),
 })
 
-const preventCaching = createMiddleware<AppEnv>(async (c, next) => {
+export const preventCaching = createMiddleware<AppEnv>(async (c, next) => {
   c.header('Cache-Control', 'no-store')
   await next()
 })
@@ -121,22 +148,10 @@ export function enforceAccess(options: AuthOptions) {
 
 export function auth(options: AuthOptions = {}) {
   return [
-    rateLimit,
     sessionStorageMiddleware,
-    useSession<SessionValues>(),
+    sessionMiddleware,
     csrf(),
     authenticate(options),
     enforceAccess(options),
   ] as const
 }
-
-export const authMiddleware = [
-  rateLimit,
-  loginBodyLimit,
-  sessionStorageMiddleware,
-  useSession<SessionValues>(),
-  csrf(),
-  authenticate({}),
-  enforceAccess({}),
-  preventCaching,
-] as const

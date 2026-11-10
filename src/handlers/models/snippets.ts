@@ -1,14 +1,8 @@
-import { z } from 'zod'
 import { ErrEditConflict, ErrRecordNotFound } from './errors'
 
-export const snippetInputSchema = z.object({
-  title: z.string().max(100, 'Use 100 characters or fewer').refine(value => value.trim() !== '', 'must not be empty'),
-  content: z.string().refine(value => value.trim() !== '', 'must not be empty'),
-})
-
-export type SnippetInput = z.infer<typeof snippetInputSchema>
-
-export type Snippet = SnippetInput & {
+export type Snippet = {
+  title: string
+  content: string
   id: number
   user_id: number
   version: number
@@ -57,7 +51,7 @@ export async function getByID(
 
 export async function insert(
   db: D1Database,
-  snippet: SnippetInput,
+  snippet: Pick<Snippet, 'title' | 'content'>,
   userId: number,
 ): Promise<[Snippet, null] | [null, Error]> {
   try {
@@ -80,7 +74,7 @@ export async function insert(
 export async function update(
   db: D1Database,
   snippet: Snippet,
-  input: SnippetInput,
+  input: Pick<Snippet, 'title' | 'content'>,
 ): Promise<[Snippet, null] | [null, Error]> {
   try {
     const updatedSnippet = await db.prepare(`

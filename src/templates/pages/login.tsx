@@ -1,6 +1,6 @@
 import { BaseTemplate } from '../base'
 import type { TemplateData } from '../base'
-import type { LoginInput } from '../../handlers/models/users'
+import type { LoginInput } from '../../handlers/auth'
 
 export type LoginPageProps = TemplateData & {
   values?: Partial<LoginInput>
@@ -13,7 +13,7 @@ export function LoginPage({ values = {}, errors = {}, formErrors = [], ...templa
     <BaseTemplate title="Log in" {...templateData}>
       <h1>Log in</h1>
       <p>Enter your email address and we will send you a login link.</p>
-      <form action="/login/link" method="post">
+      <form action="/login" method="post">
         {formErrors.map(message => <p role="alert">{message}</p>)}
         <label htmlFor="email">Email address</label>
         <input id="email" name="email" type="email" autoComplete="email" required

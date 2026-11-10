@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { Context } from 'hono'
 import { getCookie } from 'hono/cookie'
-import { zValidator } from '@hono/zod-validator'
 import type { AppEnv } from '../env'
 import * as users from './models/users'
 import * as tokens from './models/tokens'
@@ -10,13 +10,9 @@ import * as templates from '../templates'
 import * as helpers from './helpers'
 import * as errors from './errors'
 import { sendLoginLink } from '../mailer/login-link'
-import { authMiddleware } from '../middleware'
+import { auth, loginBodyLimit, preventCaching } from '../middleware'
 
 const app = new Hono<AppEnv>()
-
-function invalidLoginLink(c: Context<AppEnv>): Response {
-  return errors.clientErrorResponse(c, new Error('This login link is invalid, expired, or has already been used. Request a new link to log in.'))
-}
 
 async function emailLoginLink(c: Context<AppEnv>, user: users.User): Promise<Response> {
   const lifetimeSeconds = c.env.LOGIN_TOKEN_LIFETIME_SECONDS
@@ -34,37 +30,58 @@ async function emailLoginLink(c: Context<AppEnv>, user: users.User): Promise<Res
   return c.redirect('/login/check-email', 303)
 }
 
-app.get('/login', ...authMiddleware, async c => {
-  const [page, err] = templates.loginPage({}, await helpers.newTemplateData(c))
+app.get('/login', preventCaching, ...auth(), async c => {
+  const [page, err] = templates.loginPage(await helpers.newTemplateData(c))
   if (err !== null) return errors.serverErrorResponse(c, err)
   return c.html(page)
 })
 
-app.get('/signup', ...authMiddleware, async c => {
-  const [page, err] = templates.signupPage({ values: { email: c.req.query('email') ?? '' } }, await helpers.newTemplateData(c))
-  if (err !== null) return errors.serverErrorResponse(c, err)
-  return c.html(page)
-})
 
-app.get('/login/check-email', ...authMiddleware, async c => {
-  const [page, err] = templates.checkEmailPage(await helpers.newTemplateData(c))
-  if (err !== null) return errors.serverErrorResponse(c, err)
-  return c.html(page)
-})
+const loginInputSchema = z.object({ email: users.emailSchema })
+export type LoginInput = z.infer<typeof loginInputSchema>
 
-app.post('/login/link', ...authMiddleware, zValidator('form', users.loginInputSchema, helpers.formValidationHook(templates.loginPage)), async c => {
-  const input = c.req.valid('form')
+app.post('/login', preventCaching, loginBodyLimit, ...auth(), async c => {
+  const form = await c.req.parseBody({ all: true })
+  const result = loginInputSchema.safeParse(form)
+  if (!result.success) {
+    const [page, err] = templates.loginPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    if (err !== null) return errors.serverErrorResponse(c, err)
+    return c.html(page, 400)
+  }
+
+  const input = result.data
   const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${input.email}` })
   if (!success) return errors.rateLimitResponse(c)
 
   const [user, err] = await users.getByEmail(c.env.MY_DB, input.email)
-  if (err === ErrRecordNotFound) return c.redirect(`/signup?email=${encodeURIComponent(input.email)}`, 303)
+  if (err === ErrRecordNotFound) {
+    await c.var.session.update(previous => ({ ...previous, flash: 'No account found with that email address. Please create an account below.' }))
+    return c.redirect(`/signup?email=${encodeURIComponent(input.email)}`, 303)
+  }
   if (err !== null) return errors.serverErrorResponse(c, err)
   return emailLoginLink(c, user)
 })
 
-app.post('/signup', ...authMiddleware, zValidator('form', users.signupInputSchema, helpers.formValidationHook(templates.signupPage)), async c => {
-  const input = c.req.valid('form')
+app.get('/signup', preventCaching, ...auth(), async c => {
+  const [page, err] = templates.signupPage(await helpers.newTemplateData(c), { values: { email: c.req.query('email') ?? '' } })
+  if (err !== null) return errors.serverErrorResponse(c, err)
+  return c.html(page)
+})
+
+const signupInputSchema = loginInputSchema.extend({
+  name: z.string().trim().min(1, 'Enter your name').max(100, 'Use 100 characters or fewer'),
+})
+export type SignupInput = z.infer<typeof signupInputSchema>
+
+app.post('/signup', preventCaching, loginBodyLimit, ...auth(), async c => {
+  const form = await c.req.parseBody({ all: true })
+  const result = signupInputSchema.safeParse(form)
+  if (!result.success) {
+    const [page, err] = templates.signupPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    if (err !== null) return errors.serverErrorResponse(c, err)
+    return c.html(page, 400)
+  }
+  const input = result.data
   const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${input.email}` })
   if (!success) return errors.rateLimitResponse(c)
 
@@ -73,12 +90,20 @@ app.post('/signup', ...authMiddleware, zValidator('form', users.signupInputSchem
   return emailLoginLink(c, user)
 })
 
-app.get('/login/confirm', ...authMiddleware, async c => {
-  const input = tokens.tokenInputSchema.safeParse(c.req.query())
-  if (!input.success) return invalidLoginLink(c)
+app.get('/login/check-email', preventCaching, ...auth(), async c => {
+  const [page, err] = templates.checkEmailPage(await helpers.newTemplateData(c))
+  if (err !== null) return errors.serverErrorResponse(c, err)
+  return c.html(page)
+})
+
+const loginTokenInputSchema = z.object({ token: tokens.tokenSchema })
+
+app.get('/login/confirm', preventCaching, ...auth(), async c => {
+  const input = loginTokenInputSchema.safeParse(c.req.query())
+  if (!input.success) return errors.invalidLoginLinkErrorResponse(c)
 
   const [user, err] = await users.getForToken(c.env.MY_DB, tokens.authenticationScope, input.data.token)
-  if (err === ErrRecordNotFound) return invalidLoginLink(c)
+  if (err === ErrRecordNotFound) return errors.invalidLoginLinkErrorResponse(c)
   if (err !== null) return errors.serverErrorResponse(c, err)
 
   const [page, renderErr] = templates.loginConfirmPage(input.data.token, user.email, await helpers.newTemplateData(c))
@@ -86,12 +111,12 @@ app.get('/login/confirm', ...authMiddleware, async c => {
   return c.html(page)
 })
 
-app.post('/login', ...authMiddleware, async c => {
-  const input = tokens.tokenInputSchema.safeParse(await c.req.parseBody())
-  if (!input.success) return invalidLoginLink(c)
+app.post('/login/confirm', preventCaching, loginBodyLimit, ...auth(), async c => {
+  const input = loginTokenInputSchema.safeParse(await c.req.parseBody())
+  if (!input.success) return errors.invalidLoginLinkErrorResponse(c)
 
   const [, tokenErr] = await users.getForToken(c.env.MY_DB, tokens.authenticationScope, input.data.token)
-  if (tokenErr === ErrRecordNotFound) return invalidLoginLink(c)
+  if (tokenErr === ErrRecordNotFound) return errors.invalidLoginLinkErrorResponse(c)
   if (tokenErr !== null) return errors.serverErrorResponse(c, tokenErr)
 
   // Clear an existing session before creating the authenticated session, so the
@@ -102,14 +127,14 @@ app.post('/login', ...authMiddleware, async c => {
   }
 
   const [userId, consumeErr] = await tokens.consume(c.env.MY_DB, tokens.authenticationScope, input.data.token)
-  if (consumeErr === ErrRecordNotFound) return invalidLoginLink(c)
+  if (consumeErr === ErrRecordNotFound) return errors.invalidLoginLinkErrorResponse(c)
   if (consumeErr !== null) return errors.serverErrorResponse(c, consumeErr)
 
   await c.var.session.update({ userId })
   return c.redirect('/', 303)
 })
 
-app.post('/logout', ...authMiddleware, async c => {
+app.post('/logout', preventCaching, loginBodyLimit, ...auth(), async c => {
   await c.var.session.get()
   c.var.session.delete()
   return c.redirect('/', 303)

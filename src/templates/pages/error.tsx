@@ -9,9 +9,14 @@ type ErrorPageProps = TemplateData & {
 
 export function ErrorPage({ status, title, message, ...templateData }: ErrorPageProps) {
   return (
-    <BaseTemplate title={title} {...templateData}>
+    <BaseTemplate title={title} {...templateData} showNav={status !== 404}>
       <h1>{status} - {title}</h1>
       <p>{message}</p>
+      {status === 404 &&
+        <form action="/" method="get">
+          <button type="submit">Home</button>
+        </form>
+      }
     </BaseTemplate>
   )
 }

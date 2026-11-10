@@ -4,7 +4,7 @@ import { ContentfulStatusCode } from 'hono/utils/http-status'
 import { anonymousUser } from './models/users'
 
 function errorResponse(c: Context, status: ContentfulStatusCode, title: string, message: string): Response {
-  const [page, renderErr] = templates.errorPage(status, title, message, { isAuthenticated: !(c.get('user') ?? anonymousUser).isAnonymous() })
+  const [page, renderErr] = templates.errorPage(status, title, message, { currentUser: c.get('user') ?? anonymousUser })
   if (renderErr !== null) {
     console.error(renderErr)
     return c.text('Internal Server Error', 500)
@@ -19,6 +19,10 @@ export function notFoundResponse(c: Context): Response {
 
 export function clientErrorResponse(c: Context, error: Error): Response {
   return errorResponse(c, 400, 'Bad Request', error.message)
+}
+
+export function invalidLoginLinkErrorResponse(c: Context): Response {
+  return errorResponse(c, 400, 'Bad Request', 'This login link is invalid, expired, or has already been used. Request a new link to log in.')
 }
 
 export function serverErrorResponse(c: Context, error: Error): Response {

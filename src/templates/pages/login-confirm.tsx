@@ -6,7 +6,7 @@ export function LoginConfirmPage({ token, email, ...templateData }: TemplateData
     <BaseTemplate title="Logging in" {...templateData}>
       <h1>Logging in</h1>
       <p>Signing in as {email}.</p>
-      <form id="login-confirm" action="/login" method="post">
+      <form id="login-confirm" action="/login/confirm" method="post">
         <input type="hidden" name="token" value={token} />
         <button type="submit">Log in</button>
       </form>

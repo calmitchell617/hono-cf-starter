@@ -6,7 +6,7 @@
 .PHONY: deploy
 deploy:
 	@echo 'Applying remote D1 migrations...'
-	npx wrangler d1 migrations apply MY_DB --remote
+	CI=true npx wrangler d1 migrations apply MY_DB --remote
 	@echo 'Deploying Worker...'
 	npm run deploy
 
@@ -18,6 +18,6 @@ deploy:
 .PHONY: deploy/local
 deploy/local:
 	@echo 'Applying local D1 migrations...'
-	npx wrangler d1 migrations apply MY_DB --local
+	CI=true npx wrangler d1 migrations apply MY_DB --local
 	@echo 'Starting local Worker...'
 	npm run dev
