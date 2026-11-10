@@ -13,4 +13,8 @@ My workflow is:
 - Review the changes using git highlighting in VS Code
 - Ask for more changes
 
-When you start making changes, you should add, commit (with a reasonable description), and push the prior changes. This makes it so I can review, but we have a trailing log of commits.
+When you start making changes, you should add, commit (with a reasonable description), and push the prior changes. This makes it so I can review, but we have a trailing log of commits. Include all changes, even those you didn't make.
+
+## Deploying
+
+Use make deploy/local during dev. Use make deploy to deploy to prod.
