@@ -1,4 +1,3 @@
-import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { useSession, useSessionStorage } from '@hono/session'
 import { createMiddleware } from 'hono/factory'
@@ -11,23 +10,20 @@ import * as permissionsModel from './handlers/models/permissions'
 import * as users from './handlers/models/users'
 import { ErrRecordNotFound } from './handlers/models/errors'
 
-export const standardMiddleware = [
-  logger(message => console.log(message.replace(/\?[^ ]*/g, ''))),
-  secureHeaders({
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      objectSrc: ["'none'"],
-    },
-    referrerPolicy: 'no-referrer',
-    xFrameOptions: 'DENY',
-    strictTransportSecurity: 'max-age=15552000',
-  }),
-]
+export const securityHeaders = secureHeaders({
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+    baseUri: ["'self'"],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"],
+    objectSrc: ["'none'"],
+  },
+  referrerPolicy: 'no-referrer',
+  xFrameOptions: 'DENY',
+  strictTransportSecurity: 'max-age=15552000',
+})
 
-const rateLimit = createMiddleware<AppEnv>(async (c, next) => {
+export const rateLimit = createMiddleware<AppEnv>(async (c, next) => {
   const { success } = await c.env.RATE_LIMIT.limit({
     key: `ip:${c.req.header('cf-connecting-ip') ?? 'local'}`,
   })
@@ -45,7 +41,7 @@ export type SessionValues = {
 
 // KV storage pattern from Hono's session example, including background writes and the 30-day TTL:
 // https://github.com/honojs/middleware/blob/main/packages/session/examples/cloudflare-kv.ts
-const sessionStorageMiddleware = useSessionStorage<SessionValues, AppEnv>((c) => ({
+export const sessionStorageMiddleware = useSessionStorage<SessionValues, AppEnv>((c) => ({
   delete(sid) {
     c.executionCtx.waitUntil(c.env.SESSION_KV.delete(sid))
   },
@@ -61,12 +57,31 @@ const sessionStorageMiddleware = useSessionStorage<SessionValues, AppEnv>((c) =>
   },
 }))
 
-export const sessionMiddleware = [
-  sessionStorageMiddleware,
-  useSession<SessionValues>(),
-] as const
+const loginBodyLimit = bodyLimit({
+  maxSize: 4096,
+  onError: c => errors.clientErrorResponse(c, new Error('The submitted form is too large')),
+})
 
-function loadUser(getUser: typeof users.getByID) {
+const preventCaching = createMiddleware<AppEnv>(async (c, next) => {
+  c.header('Cache-Control', 'no-store')
+  await next()
+})
+
+type AuthOptions = {
+  requireAuthenticated?: boolean
+  requirePermission?: permissionsModel.Permission
+  loadAllPermissions?: boolean
+}
+
+export function authenticate(options: AuthOptions) {
+  const permission = options.requirePermission
+  let getUser: typeof users.getByID = users.getByID
+  if (options.loadAllPermissions) {
+    getUser = users.getByIDWithPermissions
+  } else if (permission !== undefined) {
+    getUser = (db, id) => users.getByIDWithPermissions(db, id, [permission])
+  }
+
   return createMiddleware<AppEnv>(async (c, next) => {
     const session = await c.var.session.get()
     const userId = typeof session?.userId === 'number' ? session.userId : null
@@ -90,57 +105,38 @@ function loadUser(getUser: typeof users.getByID) {
   })
 }
 
-const sessionRequestMiddleware = [
-  ...sessionMiddleware,
-  csrf(),
-] as const
-
-export const dynamicMiddleware = [rateLimit, ...sessionRequestMiddleware] as const
-
-type AuthOptions = {
-  requireAuthenticated?: boolean
-  requirePermission?: permissionsModel.Permission
-  loadAllPermissions?: boolean
-}
-
-function userMiddleware(options: AuthOptions) {
+export function enforceAccess(options: AuthOptions) {
   const permission = options.requirePermission
-  let getUser: typeof users.getByID = users.getByID
-  if (options.loadAllPermissions) {
-    getUser = users.getByIDWithPermissions
-  } else if (permission !== undefined) {
-    getUser = (db, id) => users.getByIDWithPermissions(db, id, [permission])
-  }
-
-  return [
-    loadUser(getUser),
-    createMiddleware<AppEnv>(async (c, next) => {
-      if (options.requireAuthenticated) {
-        c.header('Cache-Control', 'no-store')
-        if (c.var.user.isAnonymous()) return c.redirect('/login', 303)
-      }
-      if (permission !== undefined && !permissionsModel.hasPermission(c.var.user.permissions, permission)) {
-        return errors.notPermittedResponse(c)
-      }
-      await next()
-    }),
-  ] as const
+  return createMiddleware<AppEnv>(async (c, next) => {
+    if (options.requireAuthenticated) {
+      c.header('Cache-Control', 'no-store')
+      if (c.var.user.isAnonymous()) return c.redirect('/login', 303)
+    }
+    if (permission !== undefined && !permissionsModel.hasPermission(c.var.user.permissions, permission)) {
+      return errors.notPermittedResponse(c)
+    }
+    await next()
+  })
 }
 
 export function auth(options: AuthOptions = {}) {
-  return [...dynamicMiddleware, ...userMiddleware(options)] as const
+  return [
+    rateLimit,
+    sessionStorageMiddleware,
+    useSession<SessionValues>(),
+    csrf(),
+    authenticate(options),
+    enforceAccess(options),
+  ] as const
 }
 
 export const authMiddleware = [
   rateLimit,
-  bodyLimit({
-    maxSize: 4096,
-    onError: c => errors.clientErrorResponse(c, new Error('The submitted form is too large')),
-  }),
-  ...sessionRequestMiddleware,
-  ...userMiddleware({}),
-  createMiddleware<AppEnv>(async (c, next) => {
-    c.header('Cache-Control', 'no-store')
-    await next()
-  }),
+  loginBodyLimit,
+  sessionStorageMiddleware,
+  useSession<SessionValues>(),
+  csrf(),
+  authenticate({}),
+  enforceAccess({}),
+  preventCaching,
 ] as const
