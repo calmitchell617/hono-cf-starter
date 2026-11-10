@@ -1,0 +1,68 @@
+template-inspiration/
+wrangler.jsonc
+/worker-configuration.d.ts
+
+# ---- Secrets / local env ----
+.env*
+!.env.example
+!.env-*.example
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+
+# ---- build / test artifacts ----
+/node_modules/
+/builds/
+*.test
+*.out
+coverage.out
+coverage.txt
+cover.out
+*.coverprofile
+__pycache__/
+
+# ---- Logs / temp files ----
+*.log
+/logs/*
+tmp/
+temp/
+
+# ---- Local runtime artifacts ----
+volume/
+tls/
+
+# ---- Release dance state (Makefile tmp files) ----
+.release-local-*
+tmp/release-local/
+
+# ---- Playwright / browser test artifacts ----
+playwright-report/
+test-results/
+
+# ---- Media assets ----
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+!ui/static/global/img/landing/*.webp
+!ui/static/global/img/design/**
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.ogg
+
+bin/
+
+# Local secrets
+.dev.vars*
+!.dev.vars.example
+
+# Wrangler state and generated output
+.wrangler/
+dist/
