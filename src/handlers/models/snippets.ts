@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { ErrEditConflict, ErrRecordNotFound } from './errors'
 
 export const snippetInputSchema = z.object({
-  title: z.string().refine(value => value.trim() !== '', 'must not be empty'),
+  title: z.string().max(100, 'Use 100 characters or fewer').refine(value => value.trim() !== '', 'must not be empty'),
   content: z.string().refine(value => value.trim() !== '', 'must not be empty'),
 })
 
