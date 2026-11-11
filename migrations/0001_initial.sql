@@ -3,7 +3,8 @@ CREATE TABLE users (
   name TEXT NOT NULL,
   email TEXT NOT NULL COLLATE NOCASE UNIQUE,
   created_at INTEGER NOT NULL,
-  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0)
 );
 
 CREATE TABLE snippets (
@@ -18,7 +19,8 @@ CREATE TABLE tokens (
   hash TEXT PRIMARY KEY NOT NULL,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at INTEGER NOT NULL,
-  scope TEXT NOT NULL
+  scope TEXT NOT NULL,
+  auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0)
 );
 
 CREATE INDEX tokens_expires_at_idx ON tokens (expires_at);

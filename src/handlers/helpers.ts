@@ -14,10 +14,11 @@ export async function newTemplateData<E extends AppEnv>(c: Context<E>): Promise<
 
 export function formValidationData(input: Record<string, unknown>, error: z.core.$ZodError) {
   const { fieldErrors, formErrors } = z.flattenError(error)
-  return { values: stringFormValues(input), errors: fieldErrors, formErrors }
+  return { values: keepStringValues(input), errors: fieldErrors, formErrors }
 }
 
-export function stringFormValues(input: Record<string, unknown>): Record<string, string> {
+export function keepStringValues(input: Record<string, unknown>): Record<string, string> {
+  // Parsed forms can contain files or arrays; templates need strings to redisplay submitted values.
   return Object.fromEntries(
     Object.entries(input).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
   )

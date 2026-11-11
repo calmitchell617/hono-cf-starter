@@ -9,9 +9,9 @@ export async function sendEmailChange(email: SendEmail, from: string, to: string
     await email.send({
       from: { email: from, name: 'Hono Cloudflare Starter' },
       to,
-      subject: 'Your email change token',
+      subject: 'Your email change code',
       html,
-      text: `Change your email address:\n\n${url}\n\nYour token: ${token}\nEnter your new email address and this token on the form.\n\nThis token expires in ${expiresIn} and can only be used once.\nIf you did not request this change, you can ignore this email.`,
+      text: `Change your email address:\n\n${url}\n\nYour code: ${token}\nEnter this code and the code sent to your other email address on the confirmation form. Both are required to change your email address.\n\nThis code expires in ${expiresIn} and can only be used once.\nIf you did not request this change, you can ignore this email.`,
     })
     return null
   } catch (e) {

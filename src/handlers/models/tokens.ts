@@ -22,8 +22,30 @@ export async function hashToken(token: string): Promise<string> {
 }
 
 export async function create(db: D1Database, user: User, lifetimeSeconds: number, scope: string): Promise<[Token, null] | [null, Error]> {
+  return createWithToken(db, user, lifetimeSeconds, scope, randomToken())
+}
+
+function randomToken(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
+export function emailChangeToken(email: string, currentCode: string, newCode: string): string {
+  // One hash binds both codes to the requested address and lets us consume them atomically.
+  return JSON.stringify([email, currentCode, newCode])
+}
+
+export async function createEmailChange(db: D1Database, user: User, email: string, lifetimeSeconds: number): Promise<[
+  Token & { currentCode: string; newCode: string }, null
+] | [null, Error]> {
+  const currentCode = randomToken()
+  const newCode = randomToken()
+  const [created, err] = await createWithToken(db, user, lifetimeSeconds, emailChangeScope, emailChangeToken(email, currentCode, newCode))
+  if (err !== null) return [null, err]
+  return [{ ...created, currentCode, newCode }, null]
+}
+
+async function createWithToken(db: D1Database, user: User, lifetimeSeconds: number, scope: string, token: string): Promise<[Token, null] | [null, Error]> {
   try {
-    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('')
     const hash = await hashToken(token)
     const now = Date.now()
     const expires_at = now + lifetimeSeconds * 1000

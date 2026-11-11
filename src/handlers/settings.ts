@@ -22,14 +22,14 @@ app.get('/', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), 
   return c.html(page)
 })
 
-const settingsInputSchema = z.object({
+const changeNameInputSchema = z.object({
   name: z.string().trim().min(1, 'Enter your name').max(100, 'Use 100 characters or fewer'),
 })
-export type SettingsInput = z.infer<typeof settingsInputSchema>
+export type ChangeNameInput = z.infer<typeof changeNameInputSchema>
 
-app.post('/', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
+app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
   const form = await c.req.parseBody({ all: true })
-  const result = settingsInputSchema.safeParse(form)
+  const result = changeNameInputSchema.safeParse(form)
   if (!result.success) {
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
     if (err !== null) return errors.serverErrorResponse(c, err)
@@ -84,43 +84,69 @@ async function renderEmailChange(c: Context, props: EmailChangeConfirmPageProps 
   return c.html(page, status)
 }
 
-app.post('/email', ...auth({ requireAuthenticated: true }), async c => {
-  const { email } = c.var.user
-  const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${email}` })
+const changeEmailInputSchema = z.object({ email: users.emailSchema })
+export type ChangeEmailInput = z.infer<typeof changeEmailInputSchema>
+
+app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
+  const form = await c.req.parseBody({ all: true })
+  const result = changeEmailInputSchema.safeParse(form)
+  const renderInvalid = async (props: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
+    const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
+      emailValues: props.values, emailErrors: props.errors, emailFormErrors: props.formErrors,
+    })
+    if (err !== null) return errors.serverErrorResponse(c, err)
+    return c.html(page, 400)
+  }
+  if (!result.success) return renderInvalid(helpers.formValidationData(form, result.error))
+  const { email } = result.data
+  if (email === c.var.user.email) return renderInvalid({ values: { email }, errors: { email: ['Enter a different email address.'] } })
+  const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)
+  if (lookupErr !== null && lookupErr !== ErrRecordNotFound) return errors.serverErrorResponse(c, lookupErr)
+  if (existing !== null) return renderInvalid({ values: { email }, errors: { email: ['An account already uses that email address.'] } })
+
+  const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${c.var.user.email}` })
   if (!success) return errors.rateLimitResponse(c)
 
   const lifetimeSeconds = c.env.LOGIN_TOKEN_LIFETIME_SECONDS
-  const [created, tokenErr] = await tokens.create(c.env.MY_DB, c.var.user, lifetimeSeconds, tokens.emailChangeScope)
+  const [created, tokenErr] = await tokens.createEmailChange(c.env.MY_DB, c.var.user, email, lifetimeSeconds)
   if (tokenErr !== null) return errors.serverErrorResponse(c, tokenErr)
   const url = new URL('/settings/email/confirm', c.env.APP_URL)
-  url.searchParams.set('token', created.token)
-  const sendErr = await sendEmailChange(c.env.EMAIL, c.env.EMAIL_FROM, email, url.toString(), created.token, lifetimeSeconds)
+  url.searchParams.set('email', email)
+  url.searchParams.set('token', created.currentCode)
+  let sendErr = await sendEmailChange(c.env.EMAIL, c.env.EMAIL_FROM, c.var.user.email, url.toString(), created.currentCode, lifetimeSeconds)
+  if (sendErr === null) {
+    url.searchParams.delete('token')
+    url.searchParams.set('newToken', created.newCode)
+    sendErr = await sendEmailChange(c.env.EMAIL, c.env.EMAIL_FROM, email, url.toString(), created.newCode, lifetimeSeconds)
+  }
   if (sendErr !== null) {
     const removeErr = await tokens.remove(c.env.MY_DB, tokens.emailChangeScope, created.token)
     if (removeErr !== null) console.error(removeErr)
     return errors.serverErrorResponse(c, sendErr)
   }
-  await c.var.session.update(previous => ({ ...previous, flash: 'We emailed a token to your current email address. Enter it below with your new address.' }))
-  return c.redirect('/settings/email/confirm', 303)
+  await c.var.session.update(previous => ({ ...previous, flash: 'We sent a code to each email address. Enter both codes below to confirm the change.' }))
+  const query = new URLSearchParams({ email })
+  return c.redirect(`/settings/email/confirm?${query}`, 303)
 })
 
 app.get('/email/confirm', ...auth({ requireAuthenticated: true }), c => {
-  return renderEmailChange(c, { values: { token: c.req.query('token') ?? '' } })
+  return renderEmailChange(c, { values: { email: c.req.query('email') ?? '', token: c.req.query('token') ?? '', newToken: c.req.query('newToken') ?? '' } })
 })
 
-const emailChangeInputSchema = z.object({
+const confirmEmailChangeInputSchema = z.object({
   email: users.emailSchema,
   token: tokens.tokenSchema,
+  newToken: tokens.tokenSchema,
 })
-export type EmailChangeInput = z.infer<typeof emailChangeInputSchema>
+export type ConfirmEmailChangeInput = z.infer<typeof confirmEmailChangeInputSchema>
 
 app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   const form = await c.req.parseBody({ all: true })
-  const result = emailChangeInputSchema.safeParse(form)
+  const result = confirmEmailChangeInputSchema.safeParse(form)
   if (!result.success) return renderEmailChange(c, helpers.formValidationData(form, result.error), 400)
-  const { email, token } = result.data
+  const { email, token, newToken } = result.data
   const invalidEmail = (message: string) => renderEmailChange(c, {
-    values: { email, token }, errors: { email: [message] },
+    values: { email, token, newToken }, errors: { email: [message] },
   }, 400)
   if (email === c.var.user.email) return invalidEmail('Enter a different email address.')
   const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)
@@ -128,14 +154,15 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   if (existing !== null) return invalidEmail('An account already uses that email address.')
 
   const invalidToken = () => renderEmailChange(c, {
-    values: { email, token }, errors: { token: ['This token is invalid, expired, or already used. Request a new token from settings.'] },
+    values: { email, token, newToken }, formErrors: ['These codes are invalid, expired, or already used. Request new codes from settings.'],
   }, 400)
-  const [tokenUser, tokenErr] = await users.getForToken(c.env.MY_DB, tokens.emailChangeScope, token)
+  const combinedToken = tokens.emailChangeToken(email, token, newToken)
+  const [tokenUser, tokenErr] = await users.getForToken(c.env.MY_DB, tokens.emailChangeScope, combinedToken)
   if (tokenErr === ErrRecordNotFound) return invalidToken()
   if (tokenErr !== null) return errors.serverErrorResponse(c, tokenErr)
   if (tokenUser.id !== c.var.user.id) return invalidToken()
 
-  const [, consumeErr] = await tokens.consume(c.env.MY_DB, tokens.emailChangeScope, token)
+  const [, consumeErr] = await tokens.consume(c.env.MY_DB, tokens.emailChangeScope, combinedToken)
   if (consumeErr === ErrRecordNotFound) return invalidToken()
   if (consumeErr !== null) return errors.serverErrorResponse(c, consumeErr)
 
