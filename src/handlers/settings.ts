@@ -31,9 +31,9 @@ app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermission
   const form = await c.req.parseBody({ all: true })
   const result = changeNameInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      nameValues: formData.values, nameErrors: formData.errors, nameFormErrors: formData.formErrors,
+      nameValues: formErrors.values, nameErrors: formErrors.errors, nameFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -60,9 +60,9 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
   const form = await c.req.parseBody({ all: true })
   const result = changeAdminsInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      adminValues: formData.values, adminErrors: formData.errors, adminFormErrors: formData.formErrors,
+      adminValues: formErrors.values, adminErrors: formErrors.errors, adminFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -93,14 +93,14 @@ export type ChangeEmailInput = z.infer<typeof changeEmailInputSchema>
 app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = changeEmailInputSchema.safeParse(form)
-  const renderInvalid = async (formData: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
+  const renderInvalid = async (formErrors: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      emailValues: formData.values, emailErrors: formData.errors, emailFormErrors: formData.formErrors,
+      emailValues: formErrors.values, emailErrors: formErrors.errors, emailFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
-  if (!result.success) return renderInvalid(helpers.formValidationData(form, result.error))
+  if (!result.success) return renderInvalid(helpers.getValidationErrors(form, result.error))
   const { email } = result.data
   if (email === c.var.user.email) return renderInvalid({ values: { email }, errors: { email: ['Enter a different email address.'] } })
   const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)
@@ -147,9 +147,9 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = confirmEmailChangeInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     return renderEmailChange(c, {
-      emailChangeConfirmValues: formData.values, emailChangeConfirmErrors: formData.errors, emailChangeConfirmFormErrors: formData.formErrors,
+      emailChangeConfirmValues: formErrors.values, emailChangeConfirmErrors: formErrors.errors, emailChangeConfirmFormErrors: formErrors.formErrors,
     }, 400)
   }
   const { email, token, newToken } = result.data

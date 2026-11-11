@@ -44,9 +44,9 @@ app.post('/login', preventCaching, loginBodyLimit, ...auth(), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = loginInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.loginPage(await helpers.newTemplateData(c), {
-      loginValues: formData.values, loginErrors: formData.errors, loginFormErrors: formData.formErrors,
+      loginValues: formErrors.values, loginErrors: formErrors.errors, loginFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -80,9 +80,9 @@ app.post('/signup', preventCaching, loginBodyLimit, ...auth(), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = signupInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.signupPage(await helpers.newTemplateData(c), {
-      signupValues: formData.values, signupErrors: formData.errors, signupFormErrors: formData.formErrors,
+      signupValues: formErrors.values, signupErrors: formErrors.errors, signupFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)

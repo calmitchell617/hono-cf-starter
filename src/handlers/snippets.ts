@@ -70,9 +70,9 @@ app.post('/create', ...auth({ requireAuthenticated: true, requirePermission: 'sn
   const form = await c.req.parseBody({ all: true })
   const result = snippetInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.createSnippetPage(await helpers.newTemplateData(c), {
-      snippetValues: formData.values, snippetErrors: formData.errors, snippetFormErrors: formData.formErrors,
+      snippetValues: formErrors.values, snippetErrors: formErrors.errors, snippetFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -123,9 +123,9 @@ app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: '
   const form = await c.req.parseBody({ all: true })
   const result = snippetInputSchema.safeParse(form)
   if (!result.success) {
-    const formData = helpers.formValidationData(form, result.error)
+    const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.editSnippetPage(Number(c.req.param('id')), await helpers.newTemplateData(c), {
-      snippetValues: formData.values, snippetErrors: formData.errors, snippetFormErrors: formData.formErrors,
+      snippetValues: formErrors.values, snippetErrors: formErrors.errors, snippetFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
