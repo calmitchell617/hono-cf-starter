@@ -31,9 +31,9 @@ app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermission
   const form = await c.req.parseBody({ all: true })
   const result = changeNameInputSchema.safeParse(form)
   if (!result.success) {
-    const props = helpers.formValidationData(form, result.error)
+    const formData = helpers.formValidationData(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      nameValues: props.values, nameErrors: props.errors, nameFormErrors: props.formErrors,
+      nameValues: formData.values, nameErrors: formData.errors, nameFormErrors: formData.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -60,9 +60,9 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
   const form = await c.req.parseBody({ all: true })
   const result = changeAdminsInputSchema.safeParse(form)
   if (!result.success) {
-    const props = helpers.formValidationData(form, result.error)
+    const formData = helpers.formValidationData(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      adminValues: props.values, adminErrors: props.errors, adminFormErrors: props.formErrors,
+      adminValues: formData.values, adminErrors: formData.errors, adminFormErrors: formData.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -81,8 +81,8 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
   return c.redirect('/settings', 303)
 })
 
-async function renderEmailChange(c: Context, props: EmailChangeConfirmPageProps = {}, status: ContentfulStatusCode = 200) {
-  const [page, err] = templates.emailChangeConfirmPage(await helpers.newTemplateData(c), props)
+async function renderEmailChange(c: Context, formData: EmailChangeConfirmPageProps = {}, status: ContentfulStatusCode = 200) {
+  const [page, err] = templates.emailChangeConfirmPage(await helpers.newTemplateData(c), formData)
   if (err !== null) return errors.serverErrorResponse(c, err)
   return c.html(page, status)
 }
@@ -93,9 +93,9 @@ export type ChangeEmailInput = z.infer<typeof changeEmailInputSchema>
 app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = changeEmailInputSchema.safeParse(form)
-  const renderInvalid = async (props: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
+  const renderInvalid = async (formData: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      emailValues: props.values, emailErrors: props.errors, emailFormErrors: props.formErrors,
+      emailValues: formData.values, emailErrors: formData.errors, emailFormErrors: formData.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -147,9 +147,9 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = confirmEmailChangeInputSchema.safeParse(form)
   if (!result.success) {
-    const props = helpers.formValidationData(form, result.error)
+    const formData = helpers.formValidationData(form, result.error)
     return renderEmailChange(c, {
-      emailChangeConfirmValues: props.values, emailChangeConfirmErrors: props.errors, emailChangeConfirmFormErrors: props.formErrors,
+      emailChangeConfirmValues: formData.values, emailChangeConfirmErrors: formData.errors, emailChangeConfirmFormErrors: formData.formErrors,
     }, 400)
   }
   const { email, token, newToken } = result.data
