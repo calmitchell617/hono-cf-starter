@@ -1,9 +1,9 @@
 import type { SnippetInput } from '../../handlers/snippets'
 
 export type SnippetFormValues = {
-  values?: Partial<SnippetInput>
-  errors?: Partial<Record<keyof SnippetInput, string[]>>
-  formErrors?: string[]
+  snippetValues?: Partial<SnippetInput>
+  snippetErrors?: Partial<Record<keyof SnippetInput, string[]>>
+  snippetFormErrors?: string[]
 }
 
 type SnippetFormProps = SnippetFormValues & {
@@ -11,23 +11,23 @@ type SnippetFormProps = SnippetFormValues & {
   submitLabel: string
 }
 
-export function SnippetForm({ action, submitLabel, values = {}, errors = {}, formErrors = [] }: SnippetFormProps) {
+export function SnippetForm({ action, submitLabel, snippetValues = {}, snippetErrors = {}, snippetFormErrors = [] }: SnippetFormProps) {
   return (
     <form action={action} method="post">
-      {formErrors.map(message => <p role="alert">{message}</p>)}
+      {snippetFormErrors.map(message => <p role="alert">{message}</p>)}
       <div>
         <label htmlFor="title">Title</label>
         <input
           id="title"
           name="title"
           type="text"
-          value={values.title ?? ''}
-          aria-invalid={errors.title ? 'true' : undefined}
-          aria-describedby={errors.title ? 'title-errors' : undefined}
+          value={snippetValues.title ?? ''}
+          aria-invalid={snippetErrors.title ? 'true' : undefined}
+          aria-describedby={snippetErrors.title ? 'title-errors' : undefined}
         />
-        {errors.title && (
+        {snippetErrors.title && (
           <div id="title-errors" role="alert">
-            {errors.title.map(message => <p>{message}</p>)}
+            {snippetErrors.title.map(message => <p>{message}</p>)}
           </div>
         )}
       </div>
@@ -38,12 +38,12 @@ export function SnippetForm({ action, submitLabel, values = {}, errors = {}, for
           name="content"
           rows={10}
           cols={60}
-          aria-invalid={errors.content ? 'true' : undefined}
-          aria-describedby={errors.content ? 'content-errors' : undefined}
-        >{values.content ?? ''}</textarea>
-        {errors.content && (
+          aria-invalid={snippetErrors.content ? 'true' : undefined}
+          aria-describedby={snippetErrors.content ? 'content-errors' : undefined}
+        >{snippetValues.content ?? ''}</textarea>
+        {snippetErrors.content && (
           <div id="content-errors" role="alert">
-            {errors.content.map(message => <p>{message}</p>)}
+            {snippetErrors.content.map(message => <p>{message}</p>)}
           </div>
         )}
       </div>

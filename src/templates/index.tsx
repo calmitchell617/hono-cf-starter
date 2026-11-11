@@ -54,7 +54,7 @@ export function signupPage(data: TemplateData = {}, props: SignupPageProps = {})
 }
 
 export function loginConfirmPage(token: string, email: string, data: TemplateData = {}) {
-  return render(() => <LoginConfirmPage token={token} email={email} {...data} />)
+  return render(() => <LoginConfirmPage loginConfirmValues={{ token }} email={email} {...data} />)
 }
 
 export function checkEmailPage(data: TemplateData = {}) {

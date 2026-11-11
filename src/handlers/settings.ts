@@ -31,7 +31,10 @@ app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermission
   const form = await c.req.parseBody({ all: true })
   const result = changeNameInputSchema.safeParse(form)
   if (!result.success) {
-    const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    const props = helpers.formValidationData(form, result.error)
+    const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
+      nameValues: props.values, nameErrors: props.errors, nameFormErrors: props.formErrors,
+    })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
@@ -50,12 +53,12 @@ app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermission
   return c.redirect('/settings', 303)
 })
 
-const adminInputSchema = z.object({ email: users.emailSchema })
-export type AdminInput = z.infer<typeof adminInputSchema>
+const changeAdminsInputSchema = z.object({ email: users.emailSchema })
+export type ChangeAdminsInput = z.infer<typeof changeAdminsInputSchema>
 
-app.post('/admins', ...auth({ requireAuthenticated: true, requirePermission: 'users:promote' }), async c => {
+app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermission: 'users:promote' }), async c => {
   const form = await c.req.parseBody({ all: true })
-  const result = adminInputSchema.safeParse(form)
+  const result = changeAdminsInputSchema.safeParse(form)
   if (!result.success) {
     const props = helpers.formValidationData(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
@@ -130,7 +133,7 @@ app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissio
 })
 
 app.get('/email/confirm', ...auth({ requireAuthenticated: true }), c => {
-  return renderEmailChange(c, { values: { email: c.req.query('email') ?? '', token: c.req.query('token') ?? '', newToken: c.req.query('newToken') ?? '' } })
+  return renderEmailChange(c, { emailChangeConfirmValues: { email: c.req.query('email') ?? '', token: c.req.query('token') ?? '', newToken: c.req.query('newToken') ?? '' } })
 })
 
 const confirmEmailChangeInputSchema = z.object({
@@ -143,10 +146,15 @@ export type ConfirmEmailChangeInput = z.infer<typeof confirmEmailChangeInputSche
 app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = confirmEmailChangeInputSchema.safeParse(form)
-  if (!result.success) return renderEmailChange(c, helpers.formValidationData(form, result.error), 400)
+  if (!result.success) {
+    const props = helpers.formValidationData(form, result.error)
+    return renderEmailChange(c, {
+      emailChangeConfirmValues: props.values, emailChangeConfirmErrors: props.errors, emailChangeConfirmFormErrors: props.formErrors,
+    }, 400)
+  }
   const { email, token, newToken } = result.data
   const invalidEmail = (message: string) => renderEmailChange(c, {
-    values: { email, token, newToken }, errors: { email: [message] },
+    emailChangeConfirmValues: { email, token, newToken }, emailChangeConfirmErrors: { email: [message] },
   }, 400)
   if (email === c.var.user.email) return invalidEmail('Enter a different email address.')
   const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)
@@ -154,7 +162,7 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   if (existing !== null) return invalidEmail('An account already uses that email address.')
 
   const invalidToken = () => renderEmailChange(c, {
-    values: { email, token, newToken }, formErrors: ['These codes are invalid, expired, or already used. Request new codes from settings.'],
+    emailChangeConfirmValues: { email, token, newToken }, emailChangeConfirmFormErrors: ['These codes are invalid, expired, or already used. Request new codes from settings.'],
   }, 400)
   const combinedToken = tokens.emailChangeToken(email, token, newToken)
   const [tokenUser, tokenErr] = await users.getForToken(c.env.MY_DB, tokens.emailChangeScope, combinedToken)

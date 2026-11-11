@@ -1,22 +1,22 @@
 import { BaseTemplate } from '../base'
 import type { TemplateData } from '../base'
-import type { ChangeNameInput, AdminInput, ChangeEmailInput } from '../../handlers/settings'
+import type { ChangeNameInput, ChangeAdminsInput, ChangeEmailInput } from '../../handlers/settings'
 import { anonymousUser } from '../../handlers/models/users'
 import { hasPermission } from '../../handlers/models/permissions'
 
 export type SettingsPageProps = TemplateData & {
-  values?: Partial<ChangeNameInput>
-  errors?: Partial<Record<keyof ChangeNameInput, string[]>>
-  formErrors?: string[]
+  nameValues?: Partial<ChangeNameInput>
+  nameErrors?: Partial<Record<keyof ChangeNameInput, string[]>>
+  nameFormErrors?: string[]
   emailValues?: Partial<ChangeEmailInput>
   emailErrors?: Partial<Record<keyof ChangeEmailInput, string[]>>
   emailFormErrors?: string[]
-  adminValues?: Partial<AdminInput>
-  adminErrors?: Partial<Record<keyof AdminInput, string[]>>
+  adminValues?: Partial<ChangeAdminsInput>
+  adminErrors?: Partial<Record<keyof ChangeAdminsInput, string[]>>
   adminFormErrors?: string[]
 }
 
-export function SettingsPage({ currentUser = anonymousUser, values = currentUser, errors = {}, formErrors = [],
+export function SettingsPage({ currentUser = anonymousUser, nameValues = currentUser, nameErrors = {}, nameFormErrors = [],
   emailValues = {}, emailErrors = {}, emailFormErrors = [],
   adminValues = {}, adminErrors = {}, adminFormErrors = [], ...templateData }: SettingsPageProps) {
   return (
@@ -24,13 +24,13 @@ export function SettingsPage({ currentUser = anonymousUser, values = currentUser
       <h1>Settings</h1>
       <h2>Change name</h2>
       <form action="/settings/change-name" method="post">
-        {formErrors.map(message => <p role="alert">{message}</p>)}
+        {nameFormErrors.map(message => <p role="alert">{message}</p>)}
         <div>
           <label htmlFor="name">Name</label>
           <input id="name" name="name" autoComplete="name" required
-            value={values.name ?? ''} aria-invalid={errors.name ? 'true' : undefined}
-            aria-describedby={errors.name ? 'name-errors' : undefined} />
-          {errors.name && <div id="name-errors" role="alert">{errors.name.map(message => <p>{message}</p>)}</div>}
+            value={nameValues.name ?? ''} aria-invalid={nameErrors.name ? 'true' : undefined}
+            aria-describedby={nameErrors.name ? 'name-errors' : undefined} />
+          {nameErrors.name && <div id="name-errors" role="alert">{nameErrors.name.map(message => <p>{message}</p>)}</div>}
         </div>
         <button type="submit">Change name</button>
       </form>
@@ -51,7 +51,7 @@ export function SettingsPage({ currentUser = anonymousUser, values = currentUser
       {hasPermission(currentUser.permissions, 'users:promote') && <section aria-labelledby="admins-heading">
         <h2 id="admins-heading">Administrators</h2>
         <p>Admins can edit any snippet and promote other users to admin.</p>
-        <form action="/settings/admins" method="post">
+        <form action="/settings/change-admins" method="post">
           {adminFormErrors.map(message => <p role="alert">{message}</p>)}
           <label htmlFor="admin-email">Existing user's email address</label>
           <input id="admin-email" name="email" type="email" required

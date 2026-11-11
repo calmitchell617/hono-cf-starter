@@ -44,7 +44,10 @@ app.post('/login', preventCaching, loginBodyLimit, ...auth(), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = loginInputSchema.safeParse(form)
   if (!result.success) {
-    const [page, err] = templates.loginPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    const props = helpers.formValidationData(form, result.error)
+    const [page, err] = templates.loginPage(await helpers.newTemplateData(c), {
+      loginValues: props.values, loginErrors: props.errors, loginFormErrors: props.formErrors,
+    })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
@@ -63,7 +66,7 @@ app.post('/login', preventCaching, loginBodyLimit, ...auth(), async c => {
 })
 
 app.get('/signup', preventCaching, ...auth(), async c => {
-  const [page, err] = templates.signupPage(await helpers.newTemplateData(c), { values: { email: c.req.query('email') ?? '' } })
+  const [page, err] = templates.signupPage(await helpers.newTemplateData(c), { signupValues: { email: c.req.query('email') ?? '' } })
   if (err !== null) return errors.serverErrorResponse(c, err)
   return c.html(page)
 })
@@ -77,7 +80,10 @@ app.post('/signup', preventCaching, loginBodyLimit, ...auth(), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = signupInputSchema.safeParse(form)
   if (!result.success) {
-    const [page, err] = templates.signupPage(await helpers.newTemplateData(c), helpers.formValidationData(form, result.error))
+    const props = helpers.formValidationData(form, result.error)
+    const [page, err] = templates.signupPage(await helpers.newTemplateData(c), {
+      signupValues: props.values, signupErrors: props.errors, signupFormErrors: props.formErrors,
+    })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }

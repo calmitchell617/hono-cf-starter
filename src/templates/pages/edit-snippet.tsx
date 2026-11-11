@@ -7,12 +7,12 @@ type EditSnippetPageProps = TemplateData & SnippetFormValues & {
   id: number
 }
 
-export function EditSnippetPage({ id, values, errors, formErrors, ...templateData }: EditSnippetPageProps) {
+export function EditSnippetPage({ id, snippetValues, snippetErrors, snippetFormErrors, ...templateData }: EditSnippetPageProps) {
   return (
     <BaseTemplate title="Edit snippet" {...templateData}>
       <h1>Edit snippet</h1>
       <SnippetForm action={`/snippets/${id}/edit`} submitLabel="Save changes"
-        values={values} errors={errors} formErrors={formErrors} />
+        snippetValues={snippetValues} snippetErrors={snippetErrors} snippetFormErrors={snippetFormErrors} />
       <p><a href={`/snippets/${id}`}>Cancel</a></p>
     </BaseTemplate>
   )

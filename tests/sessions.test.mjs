@@ -295,7 +295,7 @@ test('the chains load requested permissions and snippet handlers load roles sepa
   }
 
   queries.length = 0
-  const denied = await postForm('/settings/admins', { email: 'owner@example.com' }, { cookie }, bindings)
+  const denied = await postForm('/settings/change-admins', { email: 'owner@example.com' }, { cookie }, bindings)
   assert.equal(denied.status, 403)
   assert.equal(queries.length, 1)
   assert.deepEqual(queries[0].params, [JSON.stringify(['users:promote']), userId])
@@ -403,7 +403,7 @@ test('accounts without roles remain authenticated but have no permissions', asyn
   const html = await response.text()
   assert.match(html, /Log out/)
   assert.doesNotMatch(html, /Promote to admin/)
-  assert.equal((await postForm('/settings/admins', { email: 'owner@example.com' }, { cookie })).status, 403)
+  assert.equal((await postForm('/settings/change-admins', { email: 'owner@example.com' }, { cookie })).status, 403)
 })
 
 test('deleted accounts become anonymous and their existing session is invalidated', async () => {
@@ -492,21 +492,21 @@ test('the admin role does not bypass the edit permission', async () => {
 test('only admins can promote existing users through settings and promotion is idempotent', async () => {
   const admin = await signedIn('admin@example.com')
   const target = await signedIn('target@example.com')
-  assert.equal((await postForm('/settings/admins', { email: 'target@example.com' })).status, 303)
-  assert.equal((await postForm('/settings/admins', { email: 'admin@example.com' }, { cookie: target })).status, 403)
+  assert.equal((await postForm('/settings/change-admins', { email: 'target@example.com' })).status, 303)
+  assert.equal((await postForm('/settings/change-admins', { email: 'admin@example.com' }, { cookie: target })).status, 403)
   assert.doesNotMatch(await (await request(application, '/settings', { headers: { cookie: target } })).text(), /Promote to admin/)
   await grantAdmin('admin@example.com')
   assert.match(await (await request(application, '/settings', { headers: { cookie: admin } })).text(), /Promote to admin/)
-  assert.equal((await postForm('/settings/admins', { email: 'target@example.com' }, {
+  assert.equal((await postForm('/settings/change-admins', { email: 'target@example.com' }, {
     cookie: admin, origin: 'https://evil.example',
   })).status, 403)
   for (const email of ['bad', 'unknown@example.com']) {
-    const invalid = await postForm('/settings/admins', { email }, { cookie: admin })
+    const invalid = await postForm('/settings/change-admins', { email }, { cookie: admin })
     assert.equal(invalid.status, 400)
     assert.match(await invalid.text(), /id="admin-email-errors"/)
   }
   for (let i = 0; i < 2; i++) {
-    const promoted = await postForm('/settings/admins', { email: ' TARGET@EXAMPLE.COM ' }, { cookie: admin })
+    const promoted = await postForm('/settings/change-admins', { email: ' TARGET@EXAMPLE.COM ' }, { cookie: admin })
     assert.equal(promoted.status, 303)
     assert.equal(promoted.headers.get('location'), '/settings')
   }
@@ -526,7 +526,7 @@ test('public users cannot assign roles through signup or profile fields', async 
   const url = new URL(sentEmails.at(-1).text.match(/https:\/\/[^\s]+/)[0])
   const cookie = cookieOf(await postForm('/login/confirm', { token: url.searchParams.get('token') }))
   await postForm('/settings/change-name', { name: 'New name', role: 'admin' }, { cookie })
-  assert.equal((await postForm('/settings/admins', { email: 'reader@example.com' }, { cookie })).status, 403)
+  assert.equal((await postForm('/settings/change-admins', { email: 'reader@example.com' }, { cookie })).status, 403)
   const count = await db.prepare(`SELECT COUNT(*) FROM user_roles
     JOIN roles ON roles.id = user_roles.role_id WHERE roles.name = 'admin'`).first('COUNT(*)')
   assert.equal(count, 0)
@@ -1597,7 +1597,7 @@ test('every email form rejects an overlong address without sending mail or chang
   const cases = [
     ['/login', { email }, 'email-errors'],
     ['/signup', { name: 'Reader', email }, 'email-errors'],
-    ['/settings/admins', { email }, 'admin-email-errors'],
+    ['/settings/change-admins', { email }, 'admin-email-errors'],
     ['/settings/change-email', { email }, 'new-email-errors'],
     ['/settings/email/confirm', { email, token: url.searchParams.get('token') }, 'new-email-errors'],
   ]
