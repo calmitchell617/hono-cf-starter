@@ -33,7 +33,7 @@ app.post('/change-name', ...auth({ requireAuthenticated: true, loadAllPermission
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      nameValues: formErrors.values, nameErrors: formErrors.errors, nameFormErrors: formErrors.formErrors,
+      nameValues: formErrors.values, nameFieldErrors: formErrors.fieldErrors, nameFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -62,7 +62,7 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      adminValues: formErrors.values, adminErrors: formErrors.errors, adminFormErrors: formErrors.formErrors,
+      adminValues: formErrors.values, adminFieldErrors: formErrors.fieldErrors, adminFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -71,7 +71,7 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
   const [, err] = await roles.promoteToAdmin(c.env.MY_DB, email, c.var.user.id)
   if (err === ErrRecordNotFound) {
     const [page, renderErr] = templates.settingsPage(await helpers.newTemplateData(c), {
-      adminValues: { email }, adminErrors: { email: ['No account found with that email address.'] },
+      adminValues: { email }, adminFieldErrors: { email: ['No account found with that email address.'] },
     })
     if (renderErr !== null) return errors.serverErrorResponse(c, renderErr)
     return c.html(page, 400)
@@ -93,19 +93,19 @@ export type ChangeEmailInput = z.infer<typeof changeEmailInputSchema>
 app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissions: true }), async c => {
   const form = await c.req.parseBody({ all: true })
   const result = changeEmailInputSchema.safeParse(form)
-  const renderInvalid = async (formErrors: { values?: Record<string, string>; errors?: { email?: string[] }; formErrors?: string[] }) => {
+  const renderInvalid = async (formErrors: { values?: Record<string, string>; fieldErrors?: { email?: string[] }; formErrors?: string[] }) => {
     const [page, err] = templates.settingsPage(await helpers.newTemplateData(c), {
-      emailValues: formErrors.values, emailErrors: formErrors.errors, emailFormErrors: formErrors.formErrors,
+      emailValues: formErrors.values, emailFieldErrors: formErrors.fieldErrors, emailFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
   if (!result.success) return renderInvalid(helpers.getValidationErrors(form, result.error))
   const { email } = result.data
-  if (email === c.var.user.email) return renderInvalid({ values: { email }, errors: { email: ['Enter a different email address.'] } })
+  if (email === c.var.user.email) return renderInvalid({ values: { email }, fieldErrors: { email: ['Enter a different email address.'] } })
   const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)
   if (lookupErr !== null && lookupErr !== ErrRecordNotFound) return errors.serverErrorResponse(c, lookupErr)
-  if (existing !== null) return renderInvalid({ values: { email }, errors: { email: ['An account already uses that email address.'] } })
+  if (existing !== null) return renderInvalid({ values: { email }, fieldErrors: { email: ['An account already uses that email address.'] } })
 
   const { success } = await c.env.LOGIN_RATE_LIMIT.limit({ key: `email:${c.var.user.email}` })
   if (!success) return errors.rateLimitResponse(c)
@@ -149,12 +149,12 @@ app.post('/email/confirm', ...auth({ requireAuthenticated: true }), async c => {
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     return renderEmailChange(c, {
-      emailChangeConfirmValues: formErrors.values, emailChangeConfirmErrors: formErrors.errors, emailChangeConfirmFormErrors: formErrors.formErrors,
+      emailChangeConfirmValues: formErrors.values, emailChangeConfirmFieldErrors: formErrors.fieldErrors, emailChangeConfirmFormErrors: formErrors.formErrors,
     }, 400)
   }
   const { email, token, newToken } = result.data
   const invalidEmail = (message: string) => renderEmailChange(c, {
-    emailChangeConfirmValues: { email, token, newToken }, emailChangeConfirmErrors: { email: [message] },
+    emailChangeConfirmValues: { email, token, newToken }, emailChangeConfirmFieldErrors: { email: [message] },
   }, 400)
   if (email === c.var.user.email) return invalidEmail('Enter a different email address.')
   const [existing, lookupErr] = await users.getByEmail(c.env.MY_DB, email)

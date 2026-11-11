@@ -72,7 +72,7 @@ app.post('/create', ...auth({ requireAuthenticated: true, requirePermission: 'sn
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.createSnippetPage(await helpers.newTemplateData(c), {
-      snippetValues: formErrors.values, snippetErrors: formErrors.errors, snippetFormErrors: formErrors.formErrors,
+      snippetValues: formErrors.values, snippetFieldErrors: formErrors.fieldErrors, snippetFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -125,7 +125,7 @@ app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: '
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.editSnippetPage(Number(c.req.param('id')), await helpers.newTemplateData(c), {
-      snippetValues: formErrors.values, snippetErrors: formErrors.errors, snippetFormErrors: formErrors.formErrors,
+      snippetValues: formErrors.values, snippetFieldErrors: formErrors.fieldErrors, snippetFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)

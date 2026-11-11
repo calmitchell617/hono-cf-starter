@@ -14,7 +14,7 @@ export async function newTemplateData<E extends AppEnv>(c: Context<E>): Promise<
 
 export function getValidationErrors(input: Record<string, unknown>, error: z.core.$ZodError) {
   const { fieldErrors, formErrors } = z.flattenError(error)
-  return { values: keepStringValues(input), errors: fieldErrors, formErrors }
+  return { values: keepStringValues(input), fieldErrors, formErrors }
 }
 
 export function keepStringValues(input: Record<string, unknown>): Record<string, string> {

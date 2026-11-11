@@ -6,19 +6,19 @@ import { hasPermission } from '../../handlers/models/permissions'
 
 export type SettingsPageProps = TemplateData & {
   nameValues?: Partial<ChangeNameInput>
-  nameErrors?: Partial<Record<keyof ChangeNameInput, string[]>>
+  nameFieldErrors?: Partial<Record<keyof ChangeNameInput, string[]>>
   nameFormErrors?: string[]
   emailValues?: Partial<ChangeEmailInput>
-  emailErrors?: Partial<Record<keyof ChangeEmailInput, string[]>>
+  emailFieldErrors?: Partial<Record<keyof ChangeEmailInput, string[]>>
   emailFormErrors?: string[]
   adminValues?: Partial<ChangeAdminsInput>
-  adminErrors?: Partial<Record<keyof ChangeAdminsInput, string[]>>
+  adminFieldErrors?: Partial<Record<keyof ChangeAdminsInput, string[]>>
   adminFormErrors?: string[]
 }
 
-export function SettingsPage({ currentUser = anonymousUser, nameValues = currentUser, nameErrors = {}, nameFormErrors = [],
-  emailValues = {}, emailErrors = {}, emailFormErrors = [],
-  adminValues = {}, adminErrors = {}, adminFormErrors = [], ...templateData }: SettingsPageProps) {
+export function SettingsPage({ currentUser = anonymousUser, nameValues = currentUser, nameFieldErrors = {}, nameFormErrors = [],
+  emailValues = {}, emailFieldErrors = {}, emailFormErrors = [],
+  adminValues = {}, adminFieldErrors = {}, adminFormErrors = [], ...templateData }: SettingsPageProps) {
   return (
     <BaseTemplate title="Settings" {...templateData} currentUser={currentUser}>
       <h1>Settings</h1>
@@ -28,9 +28,9 @@ export function SettingsPage({ currentUser = anonymousUser, nameValues = current
         <div>
           <label htmlFor="name">Name</label>
           <input id="name" name="name" autoComplete="name" required
-            value={nameValues.name ?? ''} aria-invalid={nameErrors.name ? 'true' : undefined}
-            aria-describedby={nameErrors.name ? 'name-errors' : undefined} />
-          {nameErrors.name && <div id="name-errors" role="alert">{nameErrors.name.map(message => <p>{message}</p>)}</div>}
+            value={nameValues.name ?? ''} aria-invalid={nameFieldErrors.name ? 'true' : undefined}
+            aria-describedby={nameFieldErrors.name ? 'name-errors' : undefined} />
+          {nameFieldErrors.name && <div id="name-errors" role="alert">{nameFieldErrors.name.map(message => <p>{message}</p>)}</div>}
         </div>
         <button type="submit">Change name</button>
       </form>
@@ -42,9 +42,9 @@ export function SettingsPage({ currentUser = anonymousUser, nameValues = current
           {emailFormErrors.map(message => <p role="alert">{message}</p>)}
           <label htmlFor="new-email">New email address</label>
           <input id="new-email" name="email" type="email" autoComplete="email" required
-            value={emailValues.email ?? ''} aria-invalid={emailErrors.email ? 'true' : undefined}
-            aria-describedby={emailErrors.email ? 'new-email-errors' : undefined} />
-          {emailErrors.email && <div id="new-email-errors" role="alert">{emailErrors.email.map(message => <p>{message}</p>)}</div>}
+            value={emailValues.email ?? ''} aria-invalid={emailFieldErrors.email ? 'true' : undefined}
+            aria-describedby={emailFieldErrors.email ? 'new-email-errors' : undefined} />
+          {emailFieldErrors.email && <div id="new-email-errors" role="alert">{emailFieldErrors.email.map(message => <p>{message}</p>)}</div>}
           <button type="submit">Change email address</button>
         </form>
       </section>
@@ -55,9 +55,9 @@ export function SettingsPage({ currentUser = anonymousUser, nameValues = current
           {adminFormErrors.map(message => <p role="alert">{message}</p>)}
           <label htmlFor="admin-email">Existing user's email address</label>
           <input id="admin-email" name="email" type="email" required
-            value={adminValues.email ?? ''} aria-invalid={adminErrors.email ? 'true' : undefined}
-            aria-describedby={adminErrors.email ? 'admin-email-errors' : undefined} />
-          {adminErrors.email && <div id="admin-email-errors" role="alert">{adminErrors.email.map(message => <p>{message}</p>)}</div>}
+            value={adminValues.email ?? ''} aria-invalid={adminFieldErrors.email ? 'true' : undefined}
+            aria-describedby={adminFieldErrors.email ? 'admin-email-errors' : undefined} />
+          {adminFieldErrors.email && <div id="admin-email-errors" role="alert">{adminFieldErrors.email.map(message => <p>{message}</p>)}</div>}
           <button type="submit">Promote to admin</button>
         </form>
       </section>}

@@ -46,7 +46,7 @@ app.post('/login', preventCaching, loginBodyLimit, ...auth(), async c => {
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.loginPage(await helpers.newTemplateData(c), {
-      loginValues: formErrors.values, loginErrors: formErrors.errors, loginFormErrors: formErrors.formErrors,
+      loginValues: formErrors.values, loginFieldErrors: formErrors.fieldErrors, loginFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
@@ -82,7 +82,7 @@ app.post('/signup', preventCaching, loginBodyLimit, ...auth(), async c => {
   if (!result.success) {
     const formErrors = helpers.getValidationErrors(form, result.error)
     const [page, err] = templates.signupPage(await helpers.newTemplateData(c), {
-      signupValues: formErrors.values, signupErrors: formErrors.errors, signupFormErrors: formErrors.formErrors,
+      signupValues: formErrors.values, signupFieldErrors: formErrors.fieldErrors, signupFormErrors: formErrors.formErrors,
     })
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)

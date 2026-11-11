@@ -27,7 +27,7 @@ When emailing someone a link to do something (signup, change email, etc), the li
 
 ## Form data
 
-Always prefix template form data with the form's name (e.g. `loginValues`, `loginErrors`, `loginFormErrors`), even on pages with only one form.
+Always prefix template form data with the form's name (e.g. `loginValues`, `loginFieldErrors`, `loginFormErrors`), even on pages with only one form.
 
 ## Updating records
 

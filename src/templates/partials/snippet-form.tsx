@@ -2,7 +2,7 @@ import type { SnippetInput } from '../../handlers/snippets'
 
 export type SnippetFormValues = {
   snippetValues?: Partial<SnippetInput>
-  snippetErrors?: Partial<Record<keyof SnippetInput, string[]>>
+  snippetFieldErrors?: Partial<Record<keyof SnippetInput, string[]>>
   snippetFormErrors?: string[]
 }
 
@@ -11,7 +11,7 @@ type SnippetFormProps = SnippetFormValues & {
   submitLabel: string
 }
 
-export function SnippetForm({ action, submitLabel, snippetValues = {}, snippetErrors = {}, snippetFormErrors = [] }: SnippetFormProps) {
+export function SnippetForm({ action, submitLabel, snippetValues = {}, snippetFieldErrors = {}, snippetFormErrors = [] }: SnippetFormProps) {
   return (
     <form action={action} method="post">
       {snippetFormErrors.map(message => <p role="alert">{message}</p>)}
@@ -22,12 +22,12 @@ export function SnippetForm({ action, submitLabel, snippetValues = {}, snippetEr
           name="title"
           type="text"
           value={snippetValues.title ?? ''}
-          aria-invalid={snippetErrors.title ? 'true' : undefined}
-          aria-describedby={snippetErrors.title ? 'title-errors' : undefined}
+          aria-invalid={snippetFieldErrors.title ? 'true' : undefined}
+          aria-describedby={snippetFieldErrors.title ? 'title-errors' : undefined}
         />
-        {snippetErrors.title && (
+        {snippetFieldErrors.title && (
           <div id="title-errors" role="alert">
-            {snippetErrors.title.map(message => <p>{message}</p>)}
+            {snippetFieldErrors.title.map(message => <p>{message}</p>)}
           </div>
         )}
       </div>
@@ -38,12 +38,12 @@ export function SnippetForm({ action, submitLabel, snippetValues = {}, snippetEr
           name="content"
           rows={10}
           cols={60}
-          aria-invalid={snippetErrors.content ? 'true' : undefined}
-          aria-describedby={snippetErrors.content ? 'content-errors' : undefined}
+          aria-invalid={snippetFieldErrors.content ? 'true' : undefined}
+          aria-describedby={snippetFieldErrors.content ? 'content-errors' : undefined}
         >{snippetValues.content ?? ''}</textarea>
-        {snippetErrors.content && (
+        {snippetFieldErrors.content && (
           <div id="content-errors" role="alert">
-            {snippetErrors.content.map(message => <p>{message}</p>)}
+            {snippetFieldErrors.content.map(message => <p>{message}</p>)}
           </div>
         )}
       </div>

@@ -5,12 +5,12 @@ import type { SnippetFormValues } from '../partials/snippet-form'
 
 export type CreateSnippetPageProps = TemplateData & SnippetFormValues
 
-export function CreateSnippetPage({ snippetValues, snippetErrors, snippetFormErrors, ...templateData }: CreateSnippetPageProps) {
+export function CreateSnippetPage({ snippetValues, snippetFieldErrors, snippetFormErrors, ...templateData }: CreateSnippetPageProps) {
   return (
     <BaseTemplate title="Create snippet" {...templateData}>
       <h1>Create snippet</h1>
       <SnippetForm action="/snippets/create" submitLabel="Create snippet"
-        snippetValues={snippetValues} snippetErrors={snippetErrors} snippetFormErrors={snippetFormErrors} />
+        snippetValues={snippetValues} snippetFieldErrors={snippetFieldErrors} snippetFormErrors={snippetFormErrors} />
     </BaseTemplate>
   )
 }
