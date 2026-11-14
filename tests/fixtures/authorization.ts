@@ -9,7 +9,7 @@ app.get('/authenticated-all', ...auth({ requireAuthenticated: true, loadAllPermi
 app.get('/authorized', ...auth({ requireAuthenticated: true, requirePermission: 'users:promote' }), c => c.json(c.var.user))
 app.get('/authorized-all', ...auth({ requireAuthenticated: true, requirePermission: 'users:promote', loadAllPermissions: true }), c => c.json(c.var.user))
 app.get('/public', ...auth(), c => c.json(c.var.user))
-app.get('/public-list', ...auth({ requireAuthenticated: false, requirePermission: 'snippets:list', loadAllPermissions: true }), c => c.json(c.var.user))
+app.get('/public-list', ...auth({ requireAuthenticated: false, requirePermission: 'posts:list', loadAllPermissions: true }), c => c.json(c.var.user))
 app.get('/public-admin', ...auth({ requirePermission: 'users:promote' }), c => c.json(c.var.user))
 
 export default app

@@ -50,7 +50,7 @@ export function SettingsPage({ currentUser = anonymousUser, nameValues = current
       </section>
       {hasPermission(currentUser.permissions, 'users:promote') && <section aria-labelledby="admins-heading">
         <h2 id="admins-heading">Administrators</h2>
-        <p>Admins can edit any snippet and promote other users to admin.</p>
+        <p>Admins can edit any post and promote other users to admin.</p>
         <form action="/settings/change-admins" method="post">
           {adminFormErrors.map(message => <p role="alert">{message}</p>)}
           <label htmlFor="admin-email">Existing user's email address</label>

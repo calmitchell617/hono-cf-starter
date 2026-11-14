@@ -1,23 +1,23 @@
-import type { Snippet } from '../../handlers/models/snippets'
+import type { Post } from '../../handlers/models/posts'
 import { BaseTemplate } from '../base'
 import type { TemplateData } from '../base'
 
 type HomePageProps = TemplateData & {
-  snippets: Snippet[]
+  posts: Post[]
 }
 
-export function HomePage({ snippets, ...templateData }: HomePageProps) {
+export function HomePage({ posts, ...templateData }: HomePageProps) {
   return (
     <BaseTemplate title="Home" {...templateData}>
-      <h1>Snippets</h1>
-      {snippets.length === 0 ? (
-        <p>No snippets yet.</p>
+      <h1>Posts</h1>
+      {posts.length === 0 ? (
+        <p>No posts yet.</p>
       ) : (
         <ul>
-          {snippets.map((snippet) => (
-            <li key={snippet.id}>
-              <a href={`/snippets/${snippet.id}`}>{snippet.title}</a>
-              {' '}#{snippet.id}
+          {posts.map((post) => (
+            <li key={post.id}>
+              <a href={`/posts/${post.id}`}>{post.title}</a>
+              {' '}#{post.id}
             </li>
           ))}
         </ul>

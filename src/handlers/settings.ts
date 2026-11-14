@@ -9,7 +9,7 @@ import { ErrEditConflict, ErrRecordNotFound } from './models/errors'
 import * as templates from '../templates'
 import * as helpers from './helpers'
 import * as errors from './errors'
-import * as roles from './models/roles'
+import * as userRoles from './models/userRoles'
 import * as tokens from './models/tokens'
 import { sendEmailChange } from '../mailer/email-change'
 import type { EmailChangeConfirmPageProps } from '../templates/pages/email-change-confirm'
@@ -68,14 +68,16 @@ app.post('/change-admins', ...auth({ requireAuthenticated: true, requirePermissi
     return c.html(page, 400)
   }
   const { email } = result.data
-  const [, err] = await roles.promoteToAdmin(c.env.MY_DB, email, c.var.user.id)
-  if (err === ErrRecordNotFound) {
+  const [user, userErr] = await users.getByEmail(c.env.MY_DB, email)
+  if (userErr === ErrRecordNotFound) {
     const [page, renderErr] = templates.settingsPage(await helpers.newTemplateData(c), {
       adminValues: { email }, adminFieldErrors: { email: ['No account found with that email address.'] },
     })
     if (renderErr !== null) return errors.serverErrorResponse(c, renderErr)
     return c.html(page, 400)
   }
+  if (userErr !== null) return errors.serverErrorResponse(c, userErr)
+  const err = await userRoles.insert(c.env.MY_DB, user.id, 'admin')
   if (err !== null) return errors.serverErrorResponse(c, err)
   await c.var.session.update(previous => ({ ...previous, flash: `${email} is now an admin.` }))
   return c.redirect('/settings', 303)

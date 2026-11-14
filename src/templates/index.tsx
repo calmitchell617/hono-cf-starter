@@ -1,11 +1,11 @@
 import type { TemplateData } from './base'
-import type { Snippet } from '../handlers/models/snippets'
-import { SnippetPage } from './pages/snippet'
+import type { Post } from '../handlers/models/posts'
+import { PostPage } from './pages/post'
 import { HomePage } from './pages/home'
-import { CreateSnippetPage } from './pages/create-snippet'
-import { EditSnippetPage } from './pages/edit-snippet'
-import type { SnippetFormValues } from './partials/snippet-form'
-import type { CreateSnippetPageProps } from './pages/create-snippet'
+import { CreatePostPage } from './pages/create-post'
+import { EditPostPage } from './pages/edit-post'
+import type { PostFormValues } from './partials/post-form'
+import type { CreatePostPageProps } from './pages/create-post'
 import { ErrorPage } from './pages/error'
 import { render } from './render'
 import { LoginPage } from './pages/login'
@@ -25,20 +25,20 @@ export function settingsPage(data: TemplateData = {}, formData: SettingsPageProp
   return render(() => <SettingsPage {...formData} {...data} />)
 }
 
-export function snippetPage(snippet: Snippet, data: TemplateData = {}, canEdit = false) {
-  return render(() => <SnippetPage snippet={snippet} canEdit={canEdit} {...data} />)
+export function postPage(post: Post, data: TemplateData = {}, canEdit = false) {
+  return render(() => <PostPage post={post} canEdit={canEdit} {...data} />)
 }
 
-export function homePage(snippets: Snippet[], data: TemplateData = {}) {
-  return render(() => <HomePage snippets={snippets} {...data} />)
+export function homePage(posts: Post[], data: TemplateData = {}) {
+  return render(() => <HomePage posts={posts} {...data} />)
 }
 
-export function createSnippetPage(data: TemplateData = {}, formData: CreateSnippetPageProps = {}) {
-  return render(() => <CreateSnippetPage {...formData} {...data} />)
+export function createPostPage(data: TemplateData = {}, formData: CreatePostPageProps = {}) {
+  return render(() => <CreatePostPage {...formData} {...data} />)
 }
 
-export function editSnippetPage(id: number, data: TemplateData = {}, formData: SnippetFormValues = {}) {
-  return render(() => <EditSnippetPage id={id} {...formData} {...data} />)
+export function editPostPage(id: number, data: TemplateData = {}, formData: PostFormValues = {}) {
+  return render(() => <EditPostPage id={id} {...formData} {...data} />)
 }
 
 export function errorPage(status: number, title: string, message: string, data: TemplateData = {}) {

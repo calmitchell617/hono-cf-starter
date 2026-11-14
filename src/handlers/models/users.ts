@@ -38,7 +38,7 @@ export class User {
 
 export const anonymousUser = Object.freeze(new User(
   { id: 0, name: '', email: '', created_at: 0, version: 0, auth_version: 0 },
-  Object.freeze({ 'snippets:list': true }),
+  Object.freeze({ 'posts:list': true }),
 ))
 
 export async function getByID(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
@@ -61,7 +61,7 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
         permissions.code
       FROM users
       LEFT JOIN user_roles ON user_roles.user_id = users.id
-      LEFT JOIN role_permissions ON role_permissions.role_id = user_roles.role_id
+      LEFT JOIN role_permissions ON role_permissions.role_code = user_roles.role_code
       LEFT JOIN permissions ON permissions.id = role_permissions.permission_id
         ${filter}
       WHERE users.id = ?
@@ -78,12 +78,11 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
 export async function getByIDWithRoles(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
   try {
     const { results } = await db.prepare(`
-      SELECT users.id, users.name, users.email, users.created_at, users.version, users.auth_version, roles.name AS role
+      SELECT users.id, users.name, users.email, users.created_at, users.version, users.auth_version, user_roles.role_code AS role
       FROM users
       LEFT JOIN user_roles ON user_roles.user_id = users.id
-      LEFT JOIN roles ON roles.id = user_roles.role_id
       WHERE users.id = ?
-      ORDER BY roles.name
+      ORDER BY user_roles.role_code
     `).bind(id).all<UserRow & { role: string | null }>()
     if (results.length === 0) return [null, ErrRecordNotFound]
     const roles = results.flatMap(row => row.role === null ? [] : [row.role])
@@ -142,9 +141,9 @@ export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>
       ON CONFLICT(email) DO NOTHING
       RETURNING id, name, email, created_at, version, auth_version
     `).bind(input.name, input.email, Date.now()), db.prepare(`
-      INSERT INTO user_roles (user_id, role_id)
-      SELECT users.id, roles.id FROM users CROSS JOIN roles
-      WHERE users.email = ? AND roles.name = 'public'
+      INSERT INTO user_roles (user_id, role_code)
+      SELECT users.id, 'public' FROM users
+      WHERE users.email = ?
         AND NOT EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = users.id)
     `).bind(input.email)])
     const user = results[0].results[0] ?? null

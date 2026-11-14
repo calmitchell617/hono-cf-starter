@@ -14,10 +14,10 @@ if (emails.length !== 1 || !email.success || (args.includes('--local') && args.i
 
 const escapedEmail = email.data.replaceAll("'", "''")
 const sql = `
-  INSERT INTO user_roles (user_id, role_id)
-  SELECT users.id, roles.id FROM users CROSS JOIN roles
-  WHERE users.email = '${escapedEmail}' AND roles.name = 'admin'
-  ON CONFLICT (user_id, role_id) DO UPDATE SET role_id = excluded.role_id
+  INSERT INTO user_roles (user_id, role_code)
+  SELECT users.id, 'admin' FROM users
+  WHERE users.email = '${escapedEmail}'
+  ON CONFLICT (user_id, role_code) DO UPDATE SET role_code = excluded.role_code
   RETURNING user_id
 `
 const require = createRequire(import.meta.url)

@@ -14,7 +14,7 @@ let kv
 let application
 let fixture
 let usersModel
-let snippetsModel
+let postsModel
 let tokensModel
 let authorizationFixture
 let buildDirectory
@@ -30,14 +30,14 @@ before(async () => {
     build({ entryPoints: ['src/index.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'application.mjs') }),
     build({ entryPoints: ['tests/fixtures/sessions.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'fixture.mjs') }),
     build({ entryPoints: ['src/handlers/models/users.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'users.mjs') }),
-    build({ entryPoints: ['src/handlers/models/snippets.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'snippets.mjs') }),
+    build({ entryPoints: ['src/handlers/models/posts.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'posts.mjs') }),
     build({ entryPoints: ['src/handlers/models/tokens.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'tokens.mjs') }),
     build({ entryPoints: ['tests/fixtures/authorization.ts'], bundle: true, format: 'esm', outfile: join(buildDirectory, 'authorization.mjs') }),
   ])
   ;({ default: application } = await import(pathToFileURL(join(buildDirectory, 'application.mjs')).href))
   ;({ default: fixture } = await import(pathToFileURL(join(buildDirectory, 'fixture.mjs')).href))
   usersModel = await import(pathToFileURL(join(buildDirectory, 'users.mjs')).href)
-  snippetsModel = await import(pathToFileURL(join(buildDirectory, 'snippets.mjs')).href)
+  postsModel = await import(pathToFileURL(join(buildDirectory, 'posts.mjs')).href)
   tokensModel = await import(pathToFileURL(join(buildDirectory, 'tokens.mjs')).href)
   ;({ default: authorizationFixture } = await import(pathToFileURL(join(buildDirectory, 'authorization.mjs')).href))
   runtime = new Miniflare({ workers: [{
@@ -49,7 +49,7 @@ before(async () => {
         modules: { 'worker.mjs': { type: 'esm', contents: await readFile(join(buildDirectory, 'fixture.mjs'), 'utf8') } },
       },
       env: {
-        MY_DB: { type: 'd1', id: 'snippets-test-db' },
+        MY_DB: { type: 'd1', id: 'posts-test-db' },
         SESSION_KV: { type: 'kv', id: 'sessions-test-kv' },
         AUTH_SECRET: { type: 'json', value: secret },
       },
@@ -68,7 +68,7 @@ beforeEach(async () => {
   sentEmails = []
   const { keys } = await kv.list()
   await Promise.all(keys.map(({ name }) => kv.delete(name)))
-  await db.prepare('DELETE FROM snippets').run()
+  await db.prepare('DELETE FROM posts').run()
   await db.prepare('DELETE FROM tokens').run()
   await db.prepare('DELETE FROM users').run()
 })
@@ -195,17 +195,17 @@ test('pages, validation and business writes work without a D1 sessions table', a
   assert.equal(await db.prepare("SELECT name FROM sqlite_master WHERE name = 'sessions'").first(), null)
   const { token } = await signup()
   const cookie = cookieOf(await postForm('/login/confirm', { token }))
-  const response = await request(application, '/snippets/create', { headers: { cookie } })
+  const response = await request(application, '/posts/create', { headers: { cookie } })
   assert.equal(response.status, 200)
   assert.equal(response.headers.get('x-frame-options'), 'DENY')
-  const invalid = await request(application, '/snippets/create', {
+  const invalid = await request(application, '/posts/create', {
     method: 'POST', headers: { cookie, origin: 'https://example.com' }, body: new URLSearchParams({ title: '', content: 'Keep this' }),
   })
   assert.equal(invalid.status, 400)
   const html = await invalid.text()
   assert.ok(html.includes('id="title-errors"'))
   assert.ok(html.includes('Keep this'))
-  const created = await request(application, '/snippets/create', {
+  const created = await request(application, '/posts/create', {
     method: 'POST', headers: { cookie, origin: 'https://example.com' }, body: new URLSearchParams({ title: 'Title', content: 'Text' }),
   })
   assert.equal(created.status, 303)
@@ -232,9 +232,9 @@ async function signedIn(email = 'owner@example.com') {
 
 async function grantAdmin(email) {
   await db.prepare(`
-    INSERT INTO user_roles (user_id, role_id)
-    SELECT users.id, roles.id FROM users CROSS JOIN roles
-    WHERE users.email = ? AND roles.name = 'admin'
+    INSERT INTO user_roles (user_id, role_code)
+    SELECT users.id, 'admin' FROM users
+    WHERE users.email = ?
   `).bind(email).run()
 }
 
@@ -254,10 +254,10 @@ test('settings loads all permissions in one query for conditional forms', async 
   assert.match(await updated.text(), /Updated name/)
 })
 
-test('the chains load requested permissions and snippet handlers load roles separately', async () => {
+test('the chains load requested permissions and post handlers load roles separately', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Text' }, { cookie })
-  const snippetPath = created.headers.get('location')
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie })
+  const postPath = created.headers.get('location')
   const queries = []
   const bindings = { MY_DB: {
     prepare(sql) {
@@ -270,10 +270,10 @@ test('the chains load requested permissions and snippet handlers load roles sepa
   const userId = (await db.prepare('SELECT id FROM users').first()).id
   for (const [path, codes, queryCount, status] of [
     ['/login', [], 1, 200],
-    ['/snippets/create', ['snippets:create'], 1, 200],
+    ['/posts/create', ['posts:create'], 1, 200],
     ['/settings', null, 1, 200],
-    [snippetPath, null, 3, 200],
-    [`${snippetPath}/edit`, ['snippets:edit'], 3, 200],
+    [postPath, null, 3, 200],
+    [`${postPath}/edit`, ['posts:edit'], 3, 200],
     ['/missing', [], 0, 404],
   ]) {
     queries.length = 0
@@ -289,7 +289,8 @@ test('the chains load requested permissions and snippet handlers load roles sepa
       assert.doesNotMatch(queries[0].sql, /json_each/)
     }
     if (queryCount === 3) {
-      assert.match(queries[2].sql, /JOIN roles/)
+      assert.match(queries[2].sql, /JOIN user_roles/)
+      assert.doesNotMatch(queries[2].sql, /JOIN roles/)
       assert.deepEqual(queries[2].params, [userId])
     }
   }
@@ -321,7 +322,7 @@ test('authentication and authorization load the requested permissions in one que
     }
     if (path === '/authenticated-all') {
       assert.deepEqual((await response.json()).permissions, {
-        'snippets:list': true, 'snippets:view': true, 'snippets:create': true, 'snippets:edit': true,
+        'posts:list': true, 'posts:view': true, 'posts:create': true, 'posts:edit': true,
       })
     }
   }
@@ -330,12 +331,12 @@ test('authentication and authorization load the requested permissions in one que
   assert.deepEqual((await narrow.json()).permissions, { 'users:promote': true })
   const broad = await request(authorizationFixture, '/authorized-all', { headers: { cookie } })
   assert.deepEqual((await broad.json()).permissions, {
-    'snippets:list': true, 'snippets:view': true, 'snippets:create': true,
-    'snippets:edit': true, 'users:promote': true,
+    'posts:list': true, 'posts:view': true, 'posts:create': true,
+    'posts:edit': true, 'users:promote': true,
   })
   await db.prepare(`DELETE FROM user_roles
     WHERE user_id = (SELECT id FROM users WHERE email = 'owner@example.com')
-      AND role_id = (SELECT id FROM roles WHERE name = 'admin')`).run()
+      AND role_code = 'admin'`).run()
   assert.equal((await request(authorizationFixture, '/authorized-all', { headers: { cookie } })).status, 403)
   assert.equal((await request(authorizationFixture, '/authenticated-all', { headers: { cookie } })).status, 200)
 })
@@ -347,7 +348,7 @@ test('auth allows anonymous access by default while still enforcing requested pe
   assert.equal((await anonymous.json()).id, 0)
   const publicList = await request(authorizationFixture, '/public-list', {}, noDatabase)
   assert.equal(publicList.status, 200)
-  assert.equal((await publicList.json()).permissions['snippets:list'], true)
+  assert.equal((await publicList.json()).permissions['posts:list'], true)
   assert.equal((await request(authorizationFixture, '/public-admin', {}, noDatabase)).status, 403)
 
   const cookie = await signedIn()
@@ -356,7 +357,7 @@ test('auth allows anonymous access by default while still enforcing requested pe
   assert.deepEqual(user.permissions, {})
   const permissions = await (await request(authorizationFixture, '/public-list', { headers: { cookie } })).json()
   assert.deepEqual(permissions.permissions, {
-    'snippets:list': true, 'snippets:view': true, 'snippets:create': true, 'snippets:edit': true,
+    'posts:list': true, 'posts:view': true, 'posts:create': true, 'posts:edit': true,
   })
   assert.equal((await request(authorizationFixture, '/public-admin', { headers: { cookie } })).status, 403)
   await grantAdmin('owner@example.com')
@@ -378,11 +379,11 @@ test('the role query returns all roles, supports users without roles, and report
   ;[user, err] = await usersModel.getByIDWithRoles(db, id)
   assert.equal(err, null)
   assert.deepEqual(user.roles, ['admin', 'public'])
-  const [withPermissions, permissionErr] = await usersModel.getByIDWithPermissions(db, id, ['snippets:edit'])
+  const [withPermissions, permissionErr] = await usersModel.getByIDWithPermissions(db, id, ['posts:edit'])
   assert.equal(permissionErr, null)
   assert.equal(withPermissions.created_at, created_at)
   assert.equal(Object.hasOwn(withPermissions, 'code'), false)
-  assert.deepEqual(withPermissions.permissions, { 'snippets:edit': true })
+  assert.deepEqual(withPermissions.permissions, { 'posts:edit': true })
   assert.deepEqual(withPermissions.roles, [])
   await db.prepare('DELETE FROM user_roles').run()
   ;[user, err] = await usersModel.getByIDWithRoles(db, id)
@@ -437,55 +438,55 @@ test('authentication query failures return 500 and preserve the session; anonymo
 test('signup assigns public permissions and repeated signup preserves admin roles', async () => {
   await signup()
   const rolesForUser = () => db.prepare(`
-    SELECT roles.name FROM roles JOIN user_roles ON user_roles.role_id = roles.id
-    JOIN users ON users.id = user_roles.user_id WHERE users.email = ? ORDER BY roles.name
+    SELECT roles.code FROM roles JOIN user_roles ON user_roles.role_code = roles.code
+    JOIN users ON users.id = user_roles.user_id WHERE users.email = ? ORDER BY roles.code
   `).bind('reader@example.com').all()
-  assert.deepEqual((await rolesForUser()).results.map(row => row.name), ['public'])
+  assert.deepEqual((await rolesForUser()).results.map(row => row.code), ['public'])
   await grantAdmin('reader@example.com')
   await signup()
-  assert.deepEqual((await rolesForUser()).results.map(row => row.name), ['admin', 'public'])
+  assert.deepEqual((await rolesForUser()).results.map(row => row.code), ['admin', 'public'])
 })
 
-test('admins can edit other users snippets and revocation affects existing sessions', async () => {
+test('admins can edit other users posts and revocation affects existing sessions', async () => {
   const owner = await signedIn()
   const admin = await signedIn('admin@example.com')
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Text' }, { cookie: owner })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie: owner })
   const path = created.headers.get('location')
   await grantAdmin('admin@example.com')
-  assert.match(await (await request(application, path, { headers: { cookie: admin } })).text(), /Edit snippet/)
+  assert.match(await (await request(application, path, { headers: { cookie: admin } })).text(), /Edit post/)
   assert.equal((await request(application, `${path}/edit`, { headers: { cookie: admin } })).status, 200)
   assert.equal((await postForm(`${path}/edit`, { title: 'Admin edit', content: 'Updated' }, { cookie: admin })).status, 303)
-  const snippet = await db.prepare('SELECT snippets.*, users.email FROM snippets JOIN users ON users.id = snippets.user_id').first()
-  assert.equal(snippet.title, 'Admin edit')
-  assert.equal(snippet.email, 'owner@example.com')
+  const post = await db.prepare('SELECT posts.*, users.email FROM posts JOIN users ON users.id = posts.user_id').first()
+  assert.equal(post.title, 'Admin edit')
+  assert.equal(post.email, 'owner@example.com')
   await db.prepare(`DELETE FROM user_roles WHERE user_id = (SELECT id FROM users WHERE email = ?)
-    AND role_id = (SELECT id FROM roles WHERE name = 'admin')`).bind('admin@example.com').run()
+    AND role_code = 'admin'`).bind('admin@example.com').run()
   assert.equal((await request(application, `${path}/edit`, { headers: { cookie: admin } })).status, 404)
   assert.equal((await postForm(`${path}/edit`, { title: 'Denied', content: 'Denied' }, { cookie: admin })).status, 404)
-  assert.doesNotMatch(await (await request(application, path, { headers: { cookie: admin } })).text(), /Edit snippet/)
-  assert.equal((await db.prepare('SELECT title FROM snippets').first()).title, 'Admin edit')
+  assert.doesNotMatch(await (await request(application, path, { headers: { cookie: admin } })).text(), /Edit post/)
+  assert.equal((await db.prepare('SELECT title FROM posts').first()).title, 'Admin edit')
 })
 
 test('the admin role does not bypass the edit permission', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Text' }, { cookie })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie })
   const path = created.headers.get('location')
   try {
     await db.batch([
-      db.prepare(`DELETE FROM role_permissions WHERE role_id = (SELECT id FROM roles WHERE name = 'admin')
-        AND permission_id = (SELECT id FROM permissions WHERE code = 'snippets:edit')`),
+      db.prepare(`DELETE FROM role_permissions WHERE role_code = 'admin'
+        AND permission_id = (SELECT id FROM permissions WHERE code = 'posts:edit')`),
       db.prepare('DELETE FROM user_roles'),
-      db.prepare(`INSERT INTO user_roles (user_id, role_id)
-        SELECT users.id, roles.id FROM users CROSS JOIN roles WHERE roles.name = 'admin'`),
+      db.prepare(`INSERT INTO user_roles (user_id, role_code)
+        SELECT users.id, roles.code FROM users CROSS JOIN roles WHERE roles.code = 'admin'`),
     ])
     assert.equal((await request(application, `${path}/edit`, { headers: { cookie } })).status, 403)
     assert.equal((await postForm(`${path}/edit`, { title: 'Denied', content: 'Denied' }, { cookie })).status, 403)
-    assert.doesNotMatch(await (await request(application, path, { headers: { cookie } })).text(), /Edit snippet/)
-    assert.equal((await db.prepare('SELECT title FROM snippets').first()).title, 'Original')
+    assert.doesNotMatch(await (await request(application, path, { headers: { cookie } })).text(), /Edit post/)
+    assert.equal((await db.prepare('SELECT title FROM posts').first()).title, 'Original')
   } finally {
-    await db.prepare(`INSERT INTO role_permissions (role_id, permission_id)
-      SELECT roles.id, permissions.id FROM roles CROSS JOIN permissions
-      WHERE roles.name = 'admin' AND permissions.code = 'snippets:edit'`).run()
+    await db.prepare(`INSERT INTO role_permissions (role_code, permission_id)
+      SELECT roles.code, permissions.id FROM roles CROSS JOIN permissions
+      WHERE roles.code = 'admin' AND permissions.code = 'posts:edit'`).run()
   }
 })
 
@@ -511,9 +512,9 @@ test('only admins can promote existing users through settings and promotion is i
     assert.equal(promoted.headers.get('location'), '/settings')
   }
   const count = await db.prepare(`SELECT COUNT(*) FROM user_roles
-    JOIN roles ON roles.id = user_roles.role_id
+    JOIN roles ON roles.code = user_roles.role_code
     JOIN users ON users.id = user_roles.user_id
-    WHERE roles.name = 'admin' AND users.email = 'target@example.com'`).first('COUNT(*)')
+    WHERE roles.code = 'admin' AND users.email = 'target@example.com'`).first('COUNT(*)')
   assert.equal(count, 1)
   const result = await request(application, '/settings', { headers: { cookie: admin } })
   assert.match(await result.text(), /target@example.com is now an admin/)
@@ -528,7 +529,7 @@ test('public users cannot assign roles through signup or profile fields', async 
   await postForm('/settings/change-name', { name: 'New name', role: 'admin' }, { cookie })
   assert.equal((await postForm('/settings/change-admins', { email: 'reader@example.com' }, { cookie })).status, 403)
   const count = await db.prepare(`SELECT COUNT(*) FROM user_roles
-    JOIN roles ON roles.id = user_roles.role_id WHERE roles.name = 'admin'`).first('COUNT(*)')
+    JOIN roles ON roles.code = user_roles.role_code WHERE roles.code = 'admin'`).first('COUNT(*)')
   assert.equal(count, 0)
 })
 
@@ -604,9 +605,9 @@ test('a validation page consumes flash without logging the user out', async () =
   assert.doesNotMatch(await next.text(), /Name updated\./)
 })
 
-test('anonymous visitors can list snippets but must log in to view details', async () => {
+test('anonymous visitors can list posts but must log in to view details', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Listed title', content: 'Detail content' }, { cookie })
+  const created = await postForm('/posts/create', { title: 'Listed title', content: 'Detail content' }, { cookie })
   const path = created.headers.get('location')
   const list = await request(application, '/')
   assert.equal(list.status, 200)
@@ -636,42 +637,42 @@ test('user updates increment the version and reject stale records', async () => 
   assert.equal(next.version, 3)
 })
 
-test('concurrent snippet updates cannot both overwrite the same version', async () => {
+test('concurrent post updates cannot both overwrite the same version', async () => {
   await signup()
   const { id } = await db.prepare('SELECT id FROM users').first()
-  const [snippet, insertErr] = await snippetsModel.insert(db, { title: 'Original', content: 'Text' }, id)
+  const [post, insertErr] = await postsModel.insert(db, { title: 'Original', content: 'Text' }, id)
   assert.equal(insertErr, null)
-  assert.equal(snippet.version, 1)
-  const [read] = await snippetsModel.getByID(db, snippet.id)
-  const [latest] = await snippetsModel.getLatest(db)
+  assert.equal(post.version, 1)
+  const [read] = await postsModel.getByID(db, post.id)
+  const [latest] = await postsModel.getLatest(db)
   assert.equal(read.version, 1)
   assert.equal(latest[0].version, 1)
   const attempts = await Promise.all([
-    snippetsModel.update(db, snippet, { title: 'First edit', content: 'First text' }),
-    snippetsModel.update(db, snippet, { title: 'Second edit', content: 'Second text' }),
+    postsModel.update(db, post, { title: 'First edit', content: 'First text' }),
+    postsModel.update(db, post, { title: 'Second edit', content: 'Second text' }),
   ])
   const successes = attempts.filter(([, err]) => err === null)
   const failures = attempts.filter(([, err]) => err !== null)
   assert.equal(successes.length, 1)
   assert.equal(failures.length, 1)
   assert.match(failures[0][1].message, /edit conflict/)
-  const [current] = await snippetsModel.getByID(db, snippet.id)
+  const [current] = await postsModel.getByID(db, post.id)
   assert.deepEqual(current, successes[0][0])
   assert.equal(current.version, 2)
-  const [next, nextErr] = await snippetsModel.update(db, current, { title: 'Next edit', content: 'Next text' })
+  const [next, nextErr] = await postsModel.update(db, current, { title: 'Next edit', content: 'Next text' })
   assert.equal(nextErr, null)
   assert.equal(next.version, 3)
 })
 
-test('settings and snippet handlers return 409 if another writer changes their record', async () => {
+test('settings and post handlers return 409 if another writer changes their record', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Text' }, { cookie })
-  const snippetPath = created.headers.get('location')
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie })
+  const postPath = created.headers.get('location')
   const user = await db.prepare('SELECT id FROM users').first()
-  const snippet = await db.prepare('SELECT id FROM snippets').first()
+  const post = await db.prepare('SELECT id FROM posts').first()
   for (const [path, input, table, id, field] of [
     ['/settings/change-name', { name: 'My edit' }, 'users', user.id, 'name'],
-    [`${snippetPath}/edit`, { title: 'My edit', content: 'My text' }, 'snippets', snippet.id, 'title'],
+    [`${postPath}/edit`, { title: 'My edit', content: 'My text' }, 'posts', post.id, 'title'],
   ]) {
     let concurrentWrites = 0
     const bindings = { MY_DB: {
@@ -702,53 +703,53 @@ test('settings and snippet handlers return 409 if another writer changes their r
 
 test('listing remains public while view and create permissions are enforced', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Text' }, { cookie })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie })
   const path = created.headers.get('location')
   for (const [code, target] of [
-    ['snippets:list', '/'],
-    ['snippets:view', path],
-    ['snippets:create', '/snippets/create'],
+    ['posts:list', '/'],
+    ['posts:view', path],
+    ['posts:create', '/posts/create'],
   ]) {
     await db.prepare(`DELETE FROM role_permissions
-      WHERE role_id = (SELECT id FROM roles WHERE name = 'public')
+      WHERE role_code = 'public'
         AND permission_id = (SELECT id FROM permissions WHERE code = ?)`).bind(code).run()
     try {
-      assert.equal((await request(application, target, { headers: { cookie } })).status, code === 'snippets:list' ? 200 : 403, code)
-      if (code === 'snippets:create') {
+      assert.equal((await request(application, target, { headers: { cookie } })).status, code === 'posts:list' ? 200 : 403, code)
+      if (code === 'posts:create') {
         assert.equal((await postForm(target, { title: 'Denied', content: 'Denied' }, { cookie })).status, 403)
-        assert.equal((await db.prepare('SELECT COUNT(*) FROM snippets').first('COUNT(*)')), 1)
+        assert.equal((await db.prepare('SELECT COUNT(*) FROM posts').first('COUNT(*)')), 1)
       }
       assert.equal((await request(application, '/settings', { headers: { cookie } })).status, 200)
     } finally {
-      await db.prepare(`INSERT INTO role_permissions (role_id, permission_id)
-        SELECT roles.id, permissions.id FROM roles CROSS JOIN permissions
-        WHERE roles.name = 'public' AND permissions.code = ?`).bind(code).run()
+      await db.prepare(`INSERT INTO role_permissions (role_code, permission_id)
+        SELECT roles.code, permissions.id FROM roles CROSS JOIN permissions
+        WHERE roles.code = 'public' AND permissions.code = ?`).bind(code).run()
     }
     assert.equal((await request(application, target, { headers: { cookie } })).status, 200, code)
   }
 })
 
-test('snippet creation requires login and assigns ownership from the session', async () => {
-  assert.equal((await request(application, '/snippets/create')).headers.get('location'), '/login')
-  const anonymous = await postForm('/snippets/create', { title: 'Title', content: 'Text' })
+test('post creation requires login and assigns ownership from the session', async () => {
+  assert.equal((await request(application, '/posts/create')).headers.get('location'), '/login')
+  const anonymous = await postForm('/posts/create', { title: 'Title', content: 'Text' })
   assert.equal(anonymous.status, 303)
   assert.equal(anonymous.headers.get('location'), '/login')
-  assert.equal((await db.prepare('SELECT COUNT(*) FROM snippets').first('COUNT(*)')), 0)
+  assert.equal((await db.prepare('SELECT COUNT(*) FROM posts').first('COUNT(*)')), 0)
 
   const cookie = await signedIn()
   const owner = await db.prepare('SELECT id FROM users WHERE email = ?').bind('owner@example.com').first()
-  const response = await postForm('/snippets/create', { title: 'Title', content: 'Text', userId: '999', user_id: '999' }, { cookie })
+  const response = await postForm('/posts/create', { title: 'Title', content: 'Text', userId: '999', user_id: '999' }, { cookie })
   assert.equal(response.status, 303)
-  const snippet = await db.prepare('SELECT * FROM snippets').first()
-  assert.equal(snippet.user_id, owner.id)
-  assert.equal(response.headers.get('location'), `/snippets/${snippet.id}`)
-  const page = await request(application, `/snippets/${snippet.id}`, { headers: { cookie } })
-  assert.match(await page.text(), new RegExp(`href="/snippets/${snippet.id}/edit"`))
+  const post = await db.prepare('SELECT * FROM posts').first()
+  assert.equal(post.user_id, owner.id)
+  assert.equal(response.headers.get('location'), `/posts/${post.id}`)
+  const page = await request(application, `/posts/${post.id}`, { headers: { cookie } })
+  assert.match(await page.text(), new RegExp(`href="/posts/${post.id}/edit"`))
 })
 
-test('owners can edit snippets and see all validation errors without losing submitted values', async () => {
+test('owners can edit posts and see all validation errors without losing submitted values', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Original text' }, { cookie })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Original text' }, { cookie })
   const path = created.headers.get('location')
   const form = await request(application, `${path}/edit`, { headers: { cookie } })
   assert.equal(form.status, 200)
@@ -766,15 +767,15 @@ test('owners can edit snippets and see all validation errors without losing subm
   const keptHtml = await kept.text()
   assert.match(keptHtml, /&lt;script&gt;Keep me&lt;\/script&gt;/)
   assert.doesNotMatch(keptHtml, /<script>Keep me<\/script>/)
-  assert.equal((await db.prepare('SELECT title FROM snippets').first()).title, 'Original')
+  assert.equal((await db.prepare('SELECT title FROM posts').first()).title, 'Original')
 
   const saved = await postForm(`${path}/edit`, { title: 'Updated', content: 'Updated text', user_id: '999' }, { cookie })
   assert.equal(saved.status, 303)
   assert.equal(saved.headers.get('location'), path)
-  const snippet = await db.prepare('SELECT * FROM snippets').first()
-  assert.equal(snippet.title, 'Updated')
-  assert.equal(snippet.content, 'Updated text')
-  assert.equal(snippet.user_id, (await db.prepare('SELECT id FROM users').first()).id)
+  const post = await db.prepare('SELECT * FROM posts').first()
+  assert.equal(post.title, 'Updated')
+  assert.equal(post.content, 'Updated text')
+  assert.equal(post.user_id, (await db.prepare('SELECT id FROM users').first()).id)
   const page = await request(application, path, { headers: { cookie } })
   assert.equal(page.status, 200)
   const pageHtml = await page.text()
@@ -782,9 +783,9 @@ test('owners can edit snippets and see all validation errors without losing subm
   assert.ok(pageHtml.includes(`${path}/edit`))
 })
 
-test('other users and anonymous visitors cannot edit a snippet', async () => {
+test('other users and anonymous visitors cannot edit a post', async () => {
   const ownerCookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Original text' }, { cookie: ownerCookie })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Original text' }, { cookie: ownerCookie })
   const path = created.headers.get('location')
   const otherCookie = await signedIn('other@example.com')
   for (const cookie of [undefined, otherCookie]) {
@@ -797,24 +798,24 @@ test('other users and anonymous visitors cannot edit a snippet', async () => {
     assert.equal(page.status, cookie ? 200 : 303)
     assert.ok(!(await page.text()).includes(`${path}/edit`))
   }
-  assert.equal((await db.prepare('SELECT title FROM snippets').first()).title, 'Original')
+  assert.equal((await db.prepare('SELECT title FROM posts').first()).title, 'Original')
   for (const id of ['999999', 'bad', '0']) {
-    const response = await request(application, `/snippets/${id}/edit`, { headers: { cookie: ownerCookie } })
+    const response = await request(application, `/posts/${id}/edit`, { headers: { cookie: ownerCookie } })
     assert.equal(response.status, id === '999999' ? 404 : 400)
   }
 })
 
-test('cross-origin requests cannot create or edit snippets', async () => {
+test('cross-origin requests cannot create or edit posts', async () => {
   const cookie = await signedIn()
-  const created = await postForm('/snippets/create', { title: 'Original', content: 'Original text' }, { cookie })
+  const created = await postForm('/posts/create', { title: 'Original', content: 'Original text' }, { cookie })
   const path = created.headers.get('location')
-  for (const target of ['/snippets/create', `${path}/edit`]) {
+  for (const target of ['/posts/create', `${path}/edit`]) {
     const response = await postForm(target, { title: 'Changed', content: 'Changed' }, { cookie, origin: 'https://evil.example' })
     assert.equal(response.status, 403)
   }
-  const snippets = await db.prepare('SELECT * FROM snippets').all()
-  assert.equal(snippets.results.length, 1)
-  assert.equal(snippets.results[0].title, 'Original')
+  const posts = await db.prepare('SELECT * FROM posts').all()
+  assert.equal(posts.results.length, 1)
+  assert.equal(posts.results[0].title, 'Original')
 })
 
 test('navigation follows the session across pages, validation errors, and logout', async () => {
@@ -826,7 +827,7 @@ test('navigation follows the session across pages, validation errors, and logout
     put: (...args) => { writes++; return kv.put(...args) },
     delete: (...args) => { writes++; return kv.delete(...args) },
   }
-  for (const path of ['/', '/snippets/create', '/login', '/signup', '/login/check-email']) {
+  for (const path of ['/', '/posts/create', '/login', '/signup', '/login/check-email']) {
     const response = await request(application, path, { headers: { cookie } }, { SESSION_KV: readOnlyKV })
     const html = await response.text()
     assert.match(html, /<form action="\/logout" method="post">/)
@@ -834,7 +835,7 @@ test('navigation follows the session across pages, validation errors, and logout
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.deepEqual(response.headers.getSetCookie(), [])
   }
-  const invalid = await postForm('/snippets/create', { title: '', content: '' }, { cookie }, { SESSION_KV: readOnlyKV })
+  const invalid = await postForm('/posts/create', { title: '', content: '' }, { cookie }, { SESSION_KV: readOnlyKV })
   assert.equal(invalid.status, 400)
   assert.match(await invalid.text(), /<form action="\/logout" method="post">/)
   assert.equal(writes, 0)
@@ -1177,7 +1178,7 @@ test('request logging does not include tokens or email query parameters', async 
 test('404 pages show a Home button without account navigation', async () => {
   const cookie = await signedIn()
   for (const headers of [{}, { cookie }]) {
-    for (const path of headers.cookie ? ['/missing', '/snippets/999999'] : ['/missing']) {
+    for (const path of headers.cookie ? ['/missing', '/posts/999999'] : ['/missing']) {
       const response = await request(application, path, { headers })
       assert.equal(response.status, 404)
       const html = await response.text()
@@ -1547,7 +1548,7 @@ test('signup accepts a 100-character name and rejects a 101-character name with 
 })
 
 
-test('settings and snippet forms preserve overlong values, show errors, and do not silently truncate input', async () => {
+test('settings and post forms preserve overlong values, show errors, and do not silently truncate input', async () => {
   const cookie = await signedIn()
   await grantAdmin('owner@example.com')
   const limitName = 'n'.repeat(100)
@@ -1562,10 +1563,10 @@ test('settings and snippet forms preserve overlong values, show errors, and do n
 
   const limitTitle = 't'.repeat(100)
   const longTitle = 't'.repeat(101)
-  const created = await postForm('/snippets/create', { title: limitTitle, content: 'Original content' }, { cookie })
+  const created = await postForm('/posts/create', { title: limitTitle, content: 'Original content' }, { cookie })
   assert.equal(created.status, 303)
-  const snippetPath = created.headers.get('location')
-  for (const path of ['/snippets/create', `${snippetPath}/edit`]) {
+  const postPath = created.headers.get('location')
+  for (const path of ['/posts/create', `${postPath}/edit`]) {
     const response = await postForm(path, { title: longTitle, content: 'Keep this content' }, { cookie })
     assert.equal(response.status, 400)
     const html = await response.text()
@@ -1574,12 +1575,12 @@ test('settings and snippet forms preserve overlong values, show errors, and do n
     assert.ok(html.includes(`value="${longTitle}"`))
     assert.match(html, /Keep this content/)
   }
-  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM snippets').first('n'), 1)
-  const snippet = await db.prepare('SELECT title, content FROM snippets').first()
-  assert.equal(snippet.title, limitTitle)
-  assert.equal(snippet.content, 'Original content')
+  assert.equal(await db.prepare('SELECT COUNT(*) AS n FROM posts').first('n'), 1)
+  const post = await db.prepare('SELECT title, content FROM posts').first()
+  assert.equal(post.title, limitTitle)
+  assert.equal(post.content, 'Original content')
 
-  for (const path of ['/signup', '/login', '/settings', '/settings/email/confirm', '/snippets/create', `${snippetPath}/edit`]) {
+  for (const path of ['/signup', '/login', '/settings', '/settings/email/confirm', '/posts/create', `${postPath}/edit`]) {
     const page = await request(application, path, { headers: { cookie } })
     assert.equal(page.status, 200)
     assert.doesNotMatch(await page.text(), /maxlength=/i)

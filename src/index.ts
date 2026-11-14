@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from 'hono/logger'
 import { csrf } from 'hono/csrf'
-import snippets from './handlers/snippets'
+import posts from './handlers/posts'
 import home from './handlers/home'
 import * as errors from './handlers/errors'
 import { securityHeaders, rateLimit, sessionStorageMiddleware, sessionMiddleware } from './middleware'
@@ -42,7 +42,7 @@ const routes = new Hono<AppEnv>()
 routes.use('*', rateLimit)
 routes.route('/', home)
 routes.route('/', authRoutes)
-routes.route('/snippets', snippets)
+routes.route('/posts', posts)
 routes.route('/settings', settings)
 routes.all('*', ...dynamic, c => errors.notFoundResponse(c))
 

@@ -5,7 +5,7 @@ export function Nav({ currentUser }: { currentUser: User }) {
     <nav aria-label="Main">
       Hono Cloudflare Starter
       {' '}<a href="/">Home</a>
-      {!currentUser.isAnonymous() && <>{' '}<a href="/snippets/create">Create snippet</a></>}
+      {!currentUser.isAnonymous() && <>{' '}<a href="/posts/create">Create post</a></>}
       {' '}
       {!currentUser.isAnonymous() ? (
         <>
