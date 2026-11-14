@@ -70,10 +70,7 @@ app.post('/create', ...auth({ requireAuthenticated: true, requirePermission: 'po
   const form = await c.req.parseBody({ all: true })
   const result = postInputSchema.safeParse(form)
   if (!result.success) {
-    const formErrors = helpers.getValidationErrors(form, result.error)
-    const [page, err] = templates.createPostPage(await helpers.newTemplateData(c), {
-      postValues: formErrors.values, postFieldErrors: formErrors.fieldErrors, postFormErrors: formErrors.formErrors,
-    })
+    const [page, err] = await helpers.renderWithValidationErrors(c, form, result, 'post', templates.createPostPage)
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
@@ -123,10 +120,7 @@ app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: '
   const form = await c.req.parseBody({ all: true })
   const result = postInputSchema.safeParse(form)
   if (!result.success) {
-    const formErrors = helpers.getValidationErrors(form, result.error)
-    const [page, err] = templates.editPostPage(Number(c.req.param('id')), await helpers.newTemplateData(c), {
-      postValues: formErrors.values, postFieldErrors: formErrors.fieldErrors, postFormErrors: formErrors.formErrors,
-    })
+    const [page, err] = await helpers.renderWithValidationErrors(c, form, result, 'post', templates.editPostPage.bind(null, Number(c.req.param('id'))))
     if (err !== null) return errors.serverErrorResponse(c, err)
     return c.html(page, 400)
   }
