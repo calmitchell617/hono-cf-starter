@@ -1,3 +1,18 @@
+import type { EmailTemplate } from '../../mailer'
+import { render } from '../render'
+
+export const emailChangeEmail: EmailTemplate<{ url: string; token: string; lifetimeSeconds: number }> = ({ url, token, lifetimeSeconds }) => {
+  const expiresIn = `${lifetimeSeconds} seconds`
+  const [html, renderErr] = render(() => <EmailChangeEmail url={url} token={token} expiresIn={expiresIn} />)
+  if (renderErr !== null) return [null, renderErr]
+
+  return [{
+    subject: 'Your email change code',
+    text: `Change your email address:\n\n${url}\n\nYour code: ${token}\nEnter this code and the code sent to your other email address on the confirmation form. Both are required to change your email address.\n\nThis code expires in ${expiresIn} and can only be used once.\nIf you did not request this change, you can ignore this email.`,
+    html,
+  }, null]
+}
+
 export function EmailChangeEmail({ url, token, expiresIn }: { url: string; token: string; expiresIn: string }) {
   return (
     <html lang="en">

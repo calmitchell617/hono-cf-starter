@@ -11,7 +11,7 @@ import * as helpers from './helpers'
 import * as errors from './errors'
 import * as userRoles from './models/userRoles'
 import * as tokens from './models/tokens'
-import { sendEmailChange } from '../mailer/email-change'
+import { createMailer } from '../mailer'
 import type { EmailChangeConfirmPageProps } from '../templates/pages/email-change-confirm'
 
 const app = new Hono<AppEnv>()
@@ -116,11 +116,20 @@ app.post('/change-email', ...auth({ requireAuthenticated: true, loadAllPermissio
   const url = new URL('/settings/email/confirm', c.env.APP_URL)
   url.searchParams.set('email', email)
   url.searchParams.set('token', created.currentCode)
-  let sendErr = await sendEmailChange(c.env.EMAIL, c.env.EMAIL_FROM, c.var.user.email, url.toString(), created.currentCode, lifetimeSeconds)
+  const mailer = createMailer(c.env.EMAIL, c.env.EMAIL_FROM)
+  let sendErr = await mailer.send(c.var.user.email, templates.emailChangeEmail, {
+    url: url.toString(),
+    token: created.currentCode,
+    lifetimeSeconds,
+  })
   if (sendErr === null) {
     url.searchParams.delete('token')
     url.searchParams.set('newToken', created.newCode)
-    sendErr = await sendEmailChange(c.env.EMAIL, c.env.EMAIL_FROM, email, url.toString(), created.newCode, lifetimeSeconds)
+    sendErr = await mailer.send(email, templates.emailChangeEmail, {
+      url: url.toString(),
+      token: created.newCode,
+      lifetimeSeconds,
+    })
   }
   if (sendErr !== null) {
     const removeErr = await tokens.remove(c.env.MY_DB, tokens.emailChangeScope, created.token)

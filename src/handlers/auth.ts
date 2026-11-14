@@ -9,7 +9,7 @@ import { ErrRecordNotFound } from './models/errors'
 import * as templates from '../templates'
 import * as helpers from './helpers'
 import * as errors from './errors'
-import { sendLoginLink } from '../mailer/login-link'
+import { createMailer } from '../mailer'
 import { auth, loginBodyLimit, preventCaching } from '../middleware'
 
 const app = new Hono<AppEnv>()
@@ -21,7 +21,11 @@ async function emailLoginLink(c: Context<AppEnv>, user: users.User): Promise<Res
 
   const url = new URL('/login/confirm', c.env.APP_URL)
   url.searchParams.set('token', created.token)
-  const sendErr = await sendLoginLink(c.env.EMAIL, c.env.EMAIL_FROM, user.email, url.toString(), lifetimeSeconds)
+  const mailer = createMailer(c.env.EMAIL, c.env.EMAIL_FROM)
+  const sendErr = await mailer.send(user.email, templates.loginLinkEmail, {
+    url: url.toString(),
+    lifetimeSeconds,
+  })
   if (sendErr !== null) {
     const removeErr = await tokens.remove(c.env.MY_DB, tokens.authenticationScope, created.token)
     if (removeErr !== null) console.error(removeErr)

@@ -14,12 +14,13 @@ import { SignupPage } from './pages/signup'
 import type { SignupPageProps } from './pages/signup'
 import { LoginConfirmPage } from './pages/login-confirm'
 import { CheckEmailPage } from './pages/check-email'
-import { LoginLinkEmail } from './emails/login-link'
-import { EmailChangeEmail } from './emails/email-change'
 import { EmailChangeConfirmPage } from './pages/email-change-confirm'
 import type { EmailChangeConfirmPageProps } from './pages/email-change-confirm'
 import { SettingsPage } from './pages/settings'
 import type { SettingsPageProps } from './pages/settings'
+
+export { loginLinkEmail } from './emails/login-link'
+export { emailChangeEmail } from './emails/email-change'
 
 export function settingsPage(data: TemplateData = {}, formData: SettingsPageProps = {}) {
   return render(() => <SettingsPage {...formData} {...data} />)
@@ -59,14 +60,6 @@ export function loginConfirmPage(token: string, email: string, data: TemplateDat
 
 export function checkEmailPage(data: TemplateData = {}) {
   return render(() => <CheckEmailPage {...data} />)
-}
-
-export function loginLinkEmail(url: string, expiresIn: string) {
-  return render(() => <LoginLinkEmail url={url} expiresIn={expiresIn} />)
-}
-
-export function emailChangeEmail(url: string, token: string, expiresIn: string) {
-  return render(() => <EmailChangeEmail url={url} token={token} expiresIn={expiresIn} />)
 }
 
 export function emailChangeConfirmPage(data: TemplateData = {}, formData: EmailChangeConfirmPageProps = {}) {
