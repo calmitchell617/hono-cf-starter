@@ -1,4 +1,5 @@
 import type { JSX } from 'hono/jsx/jsx-runtime'
+import { toError } from '../lib'
 
 export function render(
   createPage: () => JSX.Element,
@@ -18,12 +19,6 @@ export function render(
 
     return [`<!doctype html>${markup}`, null]
   } catch (error) {
-    if (!(error instanceof Error)) {
-      const message = String(error)
-      const wrappedError = new Error(message)
-      return [null, wrappedError]
-    }
-
-    return [null, error]
+    return [null, toError(error)]
   }
 }

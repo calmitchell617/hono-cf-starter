@@ -1,3 +1,4 @@
+import { toError } from '../lib'
 import { loginLinkEmail } from '../templates'
 
 export async function sendLoginLink(email: SendEmail, from: string, to: string, url: string, lifetimeSeconds: number): Promise<Error | null> {
@@ -18,6 +19,6 @@ export async function sendLoginLink(email: SendEmail, from: string, to: string, 
     })
     return null
   } catch (e) {
-    return e instanceof Error ? e : new Error(String(e))
+    return toError(e)
   }
 }

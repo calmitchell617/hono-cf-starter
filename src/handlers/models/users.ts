@@ -1,3 +1,4 @@
+import { toError } from '../../lib'
 import { z } from 'zod'
 import { ErrEditConflict, ErrRecordNotFound } from './errors'
 import type { Permission, PermissionChecks } from './permissions'
@@ -48,7 +49,7 @@ export async function getByID(db: D1Database, id: number): Promise<[User, null] 
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -71,7 +72,7 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
     const permissions = Object.fromEntries((codes ?? [...granted]).map(code => [code, granted.has(code)]))
     return [new User(results[0], permissions), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -88,7 +89,7 @@ export async function getByIDWithRoles(db: D1Database, id: number): Promise<[Use
     const roles = results.flatMap(row => row.role === null ? [] : [row.role])
     return [new User(results[0], {}, roles), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -102,7 +103,7 @@ export async function updateUser(db: D1Database, user: User): Promise<[User, nul
     if (updatedUser === null) return [null, ErrEditConflict]
     return [new User(updatedUser), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -113,7 +114,7 @@ export async function getByEmail(db: D1Database, email: string): Promise<[User, 
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -130,7 +131,7 @@ export async function getForToken(db: D1Database, scope: string, token: string):
     if (user === null) return [null, ErrRecordNotFound]
     return [new User(user), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -151,6 +152,6 @@ export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>
     if (user === null) return getByEmail(db, input.email)
     return [new User(user), null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }

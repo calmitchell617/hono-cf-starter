@@ -1,3 +1,4 @@
+import { toError } from '../../lib'
 import { ErrEditConflict, ErrRecordNotFound } from './errors'
 
 export type Post = {
@@ -18,8 +19,7 @@ export async function getLatest(
 
     return [result.results, null]
   } catch (e) {
-    const err: Error = e instanceof Error ? e : new Error(String(e))
-    return [null, err]
+    return [null, toError(e)]
   }
 }
 
@@ -44,8 +44,7 @@ export async function getByID(
     return [post, null]
 
   } catch (e) {
-    const err: Error = e instanceof Error ? e : new Error(String(e))
-    return [null, err]
+    return [null, toError(e)]
   }
 }
 
@@ -66,8 +65,7 @@ export async function insert(
 
     return [insertedPost, null]
   } catch (e) {
-    const err: Error = e instanceof Error ? e : new Error(String(e))
-    return [null, err]
+    return [null, toError(e)]
   }
 }
 
@@ -85,6 +83,6 @@ export async function update(
     if (updatedPost === null) return [null, ErrEditConflict]
     return [updatedPost, null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }

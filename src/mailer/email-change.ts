@@ -1,3 +1,4 @@
+import { toError } from '../lib'
 import { emailChangeEmail } from '../templates'
 
 export async function sendEmailChange(email: SendEmail, from: string, to: string, url: string, token: string, lifetimeSeconds: number): Promise<Error | null> {
@@ -15,6 +16,6 @@ export async function sendEmailChange(email: SendEmail, from: string, to: string
     })
     return null
   } catch (e) {
-    return e instanceof Error ? e : new Error(String(e))
+    return toError(e)
   }
 }

@@ -1,3 +1,4 @@
+import { toError } from '../../lib'
 import { z } from 'zod'
 import { ErrRecordNotFound } from './errors'
 import type { User } from './users'
@@ -56,7 +57,7 @@ async function createWithToken(db: D1Database, user: User, lifetimeSeconds: numb
     ])
     return [{ token, hash, user_id: user.id, auth_version: user.auth_version, expires_at, scope }, null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -74,7 +75,7 @@ export async function consume(db: D1Database, scope: string, token: string): Pro
     if (consumed === null) return [null, ErrRecordNotFound]
     return [consumed.user_id, null]
   } catch (e) {
-    return [null, e instanceof Error ? e : new Error(String(e))]
+    return [null, toError(e)]
   }
 }
 
@@ -84,6 +85,6 @@ export async function remove(db: D1Database, scope: string, token: string): Prom
     await db.prepare('DELETE FROM tokens WHERE hash = ? AND scope = ?').bind(hash, scope).run()
     return null
   } catch (e) {
-    return e instanceof Error ? e : new Error(String(e))
+    return toError(e)
   }
 }

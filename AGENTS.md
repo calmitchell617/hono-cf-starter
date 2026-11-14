@@ -29,6 +29,10 @@ When emailing someone a link to do something (signup, change email, etc), the li
 
 Always prefix template form data with the form's name (e.g. `loginValues`, `loginFieldErrors`, `loginFormErrors`), even on pages with only one form.
 
+## Shared utilities and handler helpers
+
+Put shared utilities in `src/lib.ts`; they may import external libraries but must not depend on other app modules. Keep helpers that use request context, sessions, templates, or other app modules in `src/handlers/helpers.ts`, which may import from `src/lib.ts`.
+
 ## Updating records
 
 For update functionality, the request handler should load the required data, validate and authorize the change, construct the complete updated model object, and pass that object to the model's update function. The update function should accept the object rather than separate fields, a partial changes object, or request-specific values such as verification tokens. Apply this pattern to updates generally.
