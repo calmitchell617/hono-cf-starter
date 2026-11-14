@@ -36,7 +36,6 @@ app.get('/login', preventCaching, ...auth(), async c => {
   return c.html(page)
 })
 
-
 const loginInputSchema = z.object({ email: users.emailSchema })
 export type LoginInput = z.infer<typeof loginInputSchema>
 
