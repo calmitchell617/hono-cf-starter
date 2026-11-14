@@ -10,8 +10,8 @@ export const permissions = [
 ] as const
 
 export type Permission = typeof permissions[number]
-export type PermissionChecks = Partial<Record<Permission, boolean>>
-
-export function hasPermission(permissions: PermissionChecks, code: Permission): boolean {
-  return permissions[code] === true
-}
+export const anonymousPermissions: ReadonlySet<Permission> = new Set<Permission>([
+  // Posts
+  'posts:list',
+  'posts:view',
+])

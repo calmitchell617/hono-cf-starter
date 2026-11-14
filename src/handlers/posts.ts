@@ -7,7 +7,6 @@ import * as helpers from './helpers'
 import * as errors from './errors'
 import type { AppEnv } from '../env'
 import { auth } from '../middleware'
-import * as permissionsModel from './models/permissions'
 import * as users from './models/users'
 
 const app = new Hono<AppEnv>()
@@ -48,8 +47,8 @@ app.get('/:id', ...auth({ requireAuthenticated: true, requirePermission: 'posts:
         return errors.serverErrorResponse(c, userErr)
     }
   }
-  const canEdit = permissionsModel.hasPermission(c.var.user.permissions, 'posts:edit') && (
-    post.user_id === user.id || user.roles.includes('admin')
+  const canEdit = c.var.user.permissions.has('posts:edit') && (
+    post.user_id === user.id || user.roles.has('admin')
   )
   const [page, renderErr] = templates.postPage(post, await helpers.newTemplateData(c), canEdit)
   if (renderErr !== null) {
@@ -107,7 +106,7 @@ app.get('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: 'p
         return errors.serverErrorResponse(c, userErr)
     }
   }
-  if (post.user_id !== user.id && !user.roles.includes('admin')) {
+  if (post.user_id !== user.id && !user.roles.has('admin')) {
     return errors.notFoundResponse(c)
   }
 
@@ -147,7 +146,7 @@ app.post('/:id/edit', ...auth({ requireAuthenticated: true, requirePermission: '
         return errors.serverErrorResponse(c, userErr)
     }
   }
-  if (post.user_id !== user.id && !user.roles.includes('admin')) {
+  if (post.user_id !== user.id && !user.roles.has('admin')) {
     return errors.notFoundResponse(c)
   }
   const [updatedPost, updateErr] = await postsModel.update(c.env.MY_DB, post, result.data)

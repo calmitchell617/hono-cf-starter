@@ -101,13 +101,9 @@ type AuthOptions = {
 }
 
 export function authenticate(options: AuthOptions) {
-  const permission = options.requirePermission
-  let getUser: typeof users.getByID = users.getByID
-  if (options.loadAllPermissions) {
-    getUser = users.getByIDWithPermissions
-  } else if (permission !== undefined) {
-    getUser = (db, id) => users.getByIDWithPermissions(db, id, [permission])
-  }
+  const getUser = options.loadAllPermissions || options.requirePermission !== undefined
+    ? users.getByIDWithPermissions
+    : users.getByID
 
   return createMiddleware<AppEnv>(async (c, next) => {
     const session = await c.var.session.get()
@@ -139,7 +135,7 @@ export function enforceAccess(options: AuthOptions) {
       c.header('Cache-Control', 'no-store')
       if (c.var.user.isAnonymous()) return c.redirect('/login', 303)
     }
-    if (permission !== undefined && !permissionsModel.hasPermission(c.var.user.permissions, permission)) {
+    if (permission !== undefined && !c.var.user.permissions.has(permission)) {
       return errors.notPermittedResponse(c)
     }
     await next()

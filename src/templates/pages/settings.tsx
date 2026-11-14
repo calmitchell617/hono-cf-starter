@@ -2,7 +2,6 @@ import { BaseTemplate } from '../base'
 import type { TemplateData } from '../base'
 import type { ChangeNameInput, ChangeAdminsInput, ChangeEmailInput } from '../../handlers/settings'
 import { anonymousUser } from '../../handlers/models/users'
-import { hasPermission } from '../../handlers/models/permissions'
 
 export type SettingsPageProps = TemplateData & {
   nameValues?: Partial<ChangeNameInput>
@@ -48,7 +47,7 @@ export function SettingsPage({ currentUser = anonymousUser, nameValues = current
           <button type="submit">Change email address</button>
         </form>
       </section>
-      {hasPermission(currentUser.permissions, 'users:promote') && <section aria-labelledby="admins-heading">
+      {currentUser.permissions.has('users:promote') && <section aria-labelledby="admins-heading">
         <h2 id="admins-heading">Administrators</h2>
         <p>Admins can edit any post and promote other users to admin.</p>
         <form action="/settings/change-admins" method="post">

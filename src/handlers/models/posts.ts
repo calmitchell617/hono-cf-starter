@@ -59,11 +59,7 @@ export async function insert(
       .bind(post.title, post.content, userId)
       .first<Post>()
 
-    if (insertedPost === null) {
-      throw new Error('models: insert returned no post')
-    }
-
-    return [insertedPost, null]
+    return [insertedPost!, null]
   } catch (e) {
     return [null, toError(e)]
   }

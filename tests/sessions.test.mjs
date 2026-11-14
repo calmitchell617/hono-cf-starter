@@ -254,7 +254,7 @@ test('settings loads all permissions in one query for conditional forms', async 
   assert.match(await updated.text(), /Updated name/)
 })
 
-test('the chains load requested permissions and post handlers load roles separately', async () => {
+test('the chains load all permissions when needed and post handlers load roles separately', async () => {
   const cookie = await signedIn()
   const created = await postForm('/posts/create', { title: 'Original', content: 'Text' }, { cookie })
   const postPath = created.headers.get('location')
@@ -268,23 +268,23 @@ test('the chains load requested permissions and post handlers load roles separat
     },
   } }
   const userId = (await db.prepare('SELECT id FROM users').first()).id
-  for (const [path, codes, queryCount, status] of [
-    ['/login', [], 1, 200],
-    ['/posts/create', ['posts:create'], 1, 200],
-    ['/settings', null, 1, 200],
-    [postPath, null, 3, 200],
-    [`${postPath}/edit`, ['posts:edit'], 3, 200],
-    ['/missing', [], 0, 404],
+  for (const [path, loadPermissions, queryCount, status] of [
+    ['/login', false, 1, 200],
+    ['/posts/create', true, 1, 200],
+    ['/settings', true, 1, 200],
+    [postPath, true, 3, 200],
+    [`${postPath}/edit`, true, 3, 200],
+    ['/missing', false, 0, 404],
   ]) {
     queries.length = 0
     const response = await request(application, path, { headers: { cookie } }, bindings)
     assert.equal(response.status, status, path)
     assert.equal(queries.length, queryCount, path)
     if (queryCount === 0) continue
-    assert.deepEqual(queries[0].params, codes === null || codes.length === 0 ? [userId] : [JSON.stringify(codes), userId], path)
+    assert.deepEqual(queries[0].params, [userId], path)
     assert.doesNotMatch(queries[0].sql, /EXISTS|JOIN roles|isAdmin/, path)
-    if (codes?.length === 0) assert.doesNotMatch(queries[0].sql, /permissions|user_roles|isAdmin/, path)
-    if (codes === null) {
+    if (!loadPermissions) assert.doesNotMatch(queries[0].sql, /permissions|user_roles|isAdmin/, path)
+    if (loadPermissions) {
       assert.match(queries[0].sql, /JOIN permissions/)
       assert.doesNotMatch(queries[0].sql, /json_each/)
     }
@@ -299,10 +299,10 @@ test('the chains load requested permissions and post handlers load roles separat
   const denied = await postForm('/settings/change-admins', { email: 'owner@example.com' }, { cookie }, bindings)
   assert.equal(denied.status, 403)
   assert.equal(queries.length, 1)
-  assert.deepEqual(queries[0].params, [JSON.stringify(['users:promote']), userId])
+  assert.deepEqual(queries[0].params, [userId])
 })
 
-test('authentication and authorization load the requested permissions in one query', async () => {
+test('authentication and authorization load all permissions when needed in one query', async () => {
   for (const path of ['/authenticated', '/authenticated-all', '/authorized', '/authorized-all']) {
     const response = await request(authorizationFixture, path)
     assert.equal(response.status, 303)
@@ -317,23 +317,23 @@ test('authentication and authorization load the requested permissions in one que
     assert.equal(queries.length, 1)
     assert.equal(response.status, path.startsWith('/authorized') ? 403 : 200)
     if (path === '/authenticated') {
-      assert.deepEqual((await response.json()).permissions, {})
+      assert.deepEqual((await response.json()).permissions, [])
       assert.doesNotMatch(queries[0], /permissions|user_roles/)
     }
     if (path === '/authenticated-all') {
-      assert.deepEqual((await response.json()).permissions, {
-        'posts:list': true, 'posts:view': true, 'posts:create': true, 'posts:edit': true,
-      })
+      assert.deepEqual(new Set((await response.json()).permissions), new Set([
+        'posts:list', 'posts:view', 'posts:create', 'posts:edit',
+      ]))
     }
   }
   await grantAdmin('owner@example.com')
-  const narrow = await request(authorizationFixture, '/authorized', { headers: { cookie } })
-  assert.deepEqual((await narrow.json()).permissions, { 'users:promote': true })
+  const authorized = await request(authorizationFixture, '/authorized', { headers: { cookie } })
+  const granted = (await authorized.json()).permissions
+  assert.deepEqual(new Set(granted), new Set([
+    'posts:list', 'posts:view', 'posts:create', 'posts:edit', 'users:promote',
+  ]))
   const broad = await request(authorizationFixture, '/authorized-all', { headers: { cookie } })
-  assert.deepEqual((await broad.json()).permissions, {
-    'posts:list': true, 'posts:view': true, 'posts:create': true,
-    'posts:edit': true, 'users:promote': true,
-  })
+  assert.deepEqual((await broad.json()).permissions, granted)
   await db.prepare(`DELETE FROM user_roles
     WHERE user_id = (SELECT id FROM users WHERE email = 'owner@example.com')
       AND role_code = 'admin'`).run()
@@ -348,17 +348,17 @@ test('auth allows anonymous access by default while still enforcing requested pe
   assert.equal((await anonymous.json()).id, 0)
   const publicList = await request(authorizationFixture, '/public-list', {}, noDatabase)
   assert.equal(publicList.status, 200)
-  assert.equal((await publicList.json()).permissions['posts:list'], true)
+  assert.ok((await publicList.json()).permissions.includes('posts:list'))
   assert.equal((await request(authorizationFixture, '/public-admin', {}, noDatabase)).status, 403)
 
   const cookie = await signedIn()
   const user = await (await request(authorizationFixture, '/public', { headers: { cookie } })).json()
   assert.notEqual(user.id, 0)
-  assert.deepEqual(user.permissions, {})
+  assert.deepEqual(user.permissions, [])
   const permissions = await (await request(authorizationFixture, '/public-list', { headers: { cookie } })).json()
-  assert.deepEqual(permissions.permissions, {
-    'posts:list': true, 'posts:view': true, 'posts:create': true, 'posts:edit': true,
-  })
+  assert.deepEqual(new Set(permissions.permissions), new Set([
+    'posts:list', 'posts:view', 'posts:create', 'posts:edit',
+  ]))
   assert.equal((await request(authorizationFixture, '/public-admin', { headers: { cookie } })).status, 403)
   await grantAdmin('owner@example.com')
   assert.equal((await request(authorizationFixture, '/public-admin', { headers: { cookie } })).status, 200)
@@ -373,23 +373,25 @@ test('the role query returns all roles, supports users without roles, and report
   assert.equal(user.email, 'reader@example.com')
   assert.equal(user.created_at, created_at)
   assert.equal(Object.hasOwn(user, 'createdAt'), false)
-  assert.deepEqual(user.roles, ['public'])
-  assert.deepEqual(user.permissions, {})
+  assert.deepEqual(user.roles, new Set(['public']))
+  assert.deepEqual(user.permissions, new Set())
   await grantAdmin('reader@example.com')
   ;[user, err] = await usersModel.getByIDWithRoles(db, id)
   assert.equal(err, null)
-  assert.deepEqual(user.roles, ['admin', 'public'])
-  const [withPermissions, permissionErr] = await usersModel.getByIDWithPermissions(db, id, ['posts:edit'])
+  assert.deepEqual(user.roles, new Set(['admin', 'public']))
+  const [withPermissions, permissionErr] = await usersModel.getByIDWithPermissions(db, id)
   assert.equal(permissionErr, null)
   assert.equal(withPermissions.created_at, created_at)
   assert.equal(Object.hasOwn(withPermissions, 'code'), false)
-  assert.deepEqual(withPermissions.permissions, { 'posts:edit': true })
-  assert.deepEqual(withPermissions.roles, [])
+  assert.deepEqual(withPermissions.permissions, new Set([
+    'posts:list', 'posts:view', 'posts:create', 'posts:edit', 'users:promote',
+  ]))
+  assert.deepEqual(withPermissions.roles, new Set())
   await db.prepare('DELETE FROM user_roles').run()
   ;[user, err] = await usersModel.getByIDWithRoles(db, id)
   assert.equal(err, null)
   assert.equal(user.id, id)
-  assert.deepEqual(user.roles, [])
+  assert.deepEqual(user.roles, new Set())
   await db.prepare('DELETE FROM users').run()
   ;[user, err] = await usersModel.getByIDWithRoles(db, id)
   assert.equal(user, null)
@@ -435,7 +437,7 @@ test('authentication query failures return 500 and preserve the session; anonymo
   assert.equal((await request(application, '/settings', { headers: { cookie } })).status, 200)
 })
 
-test('signup assigns public permissions and repeated signup preserves admin roles', async () => {
+test('signup assigns public permissions and repeated signup preserves existing roles or their absence', async () => {
   await signup()
   const rolesForUser = () => db.prepare(`
     SELECT roles.code FROM roles JOIN user_roles ON user_roles.role_code = roles.code
@@ -445,6 +447,14 @@ test('signup assigns public permissions and repeated signup preserves admin role
   await grantAdmin('reader@example.com')
   await signup()
   assert.deepEqual((await rolesForUser()).results.map(row => row.code), ['admin', 'public'])
+  await db.prepare("DELETE FROM user_roles WHERE role_code = 'public'").run()
+  await signup()
+  assert.deepEqual((await rolesForUser()).results.map(row => row.code), ['admin'])
+  await db.prepare('DELETE FROM user_roles').run()
+  const before = await db.prepare('SELECT * FROM users').first()
+  await signup('reader@example.com', 'Changed name')
+  assert.deepEqual((await rolesForUser()).results, [])
+  assert.deepEqual(await db.prepare('SELECT * FROM users').first(), before)
 })
 
 test('admins can edit other users posts and revocation affects existing sessions', async () => {

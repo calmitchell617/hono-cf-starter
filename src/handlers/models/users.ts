@@ -1,7 +1,8 @@
 import { toError } from '../../lib'
 import { z } from 'zod'
 import { ErrEditConflict, ErrRecordNotFound } from './errors'
-import type { Permission, PermissionChecks } from './permissions'
+import type { Permission } from './permissions'
+import { anonymousPermissions } from './permissions'
 import { hashToken } from './tokens'
 
 export const emailSchema = z.string().trim().toLowerCase().pipe(z.email({ error: 'Enter a valid email address' }).max(254, 'Use 254 characters or fewer'))
@@ -22,14 +23,18 @@ export class User {
   readonly created_at: number
   readonly version: number
   readonly auth_version: number
+  readonly permissions: ReadonlySet<Permission>
+  readonly roles: ReadonlySet<string>
 
-  constructor(user: UserRow, readonly permissions: PermissionChecks = {}, readonly roles: readonly string[] = []) {
+  constructor(user: UserRow, permissions: ReadonlySet<Permission> = new Set(), roles: ReadonlySet<string> = new Set()) {
     this.id = user.id
     this.name = user.name
     this.email = user.email
     this.created_at = user.created_at
     this.version = user.version
     this.auth_version = user.auth_version
+    this.permissions = permissions
+    this.roles = roles
   }
 
   isAnonymous(): boolean {
@@ -39,7 +44,7 @@ export class User {
 
 export const anonymousUser = Object.freeze(new User(
   { id: 0, name: '', email: '', created_at: 0, version: 0, auth_version: 0 },
-  Object.freeze({ 'posts:list': true }),
+  anonymousPermissions,
 ))
 
 export async function getByID(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
@@ -53,10 +58,8 @@ export async function getByID(db: D1Database, id: number): Promise<[User, null] 
   }
 }
 
-export async function getByIDWithPermissions(db: D1Database, id: number, codes?: readonly Permission[]): Promise<[User, null] | [null, Error]> {
+export async function getByIDWithPermissions(db: D1Database, id: number): Promise<[User, null] | [null, Error]> {
   try {
-    const filter = codes === undefined ? '' : 'AND permissions.code IN (SELECT value FROM json_each(?))'
-    const params = codes === undefined ? [id] : [JSON.stringify(codes), id]
     const { results } = await db.prepare(`
       SELECT DISTINCT users.id, users.name, users.email, users.created_at, users.version, users.auth_version,
         permissions.code
@@ -64,12 +67,11 @@ export async function getByIDWithPermissions(db: D1Database, id: number, codes?:
       LEFT JOIN user_roles ON user_roles.user_id = users.id
       LEFT JOIN role_permissions ON role_permissions.role_code = user_roles.role_code
       LEFT JOIN permissions ON permissions.id = role_permissions.permission_id
-        ${filter}
       WHERE users.id = ?
-    `).bind(...params).all<UserRow & { code: Permission | null }>()
+    `).bind(id).all<UserRow & { code: Permission | null }>()
     if (results.length === 0) return [null, ErrRecordNotFound]
-    const granted = new Set(results.flatMap(row => row.code === null ? [] : [row.code]))
-    const permissions = Object.fromEntries((codes ?? [...granted]).map(code => [code, granted.has(code)]))
+    // Skip null codes and collect granted permissions into a Set for fast membership checks.
+    const permissions = new Set(results.flatMap(row => row.code === null ? [] : [row.code]))
     return [new User(results[0], permissions), null]
   } catch (e) {
     return [null, toError(e)]
@@ -86,8 +88,9 @@ export async function getByIDWithRoles(db: D1Database, id: number): Promise<[Use
       ORDER BY user_roles.role_code
     `).bind(id).all<UserRow & { role: string | null }>()
     if (results.length === 0) return [null, ErrRecordNotFound]
-    const roles = results.flatMap(row => row.role === null ? [] : [row.role])
-    return [new User(results[0], {}, roles), null]
+    // Skip null roles and collect the role names into a Set for fast membership checks.
+    const roles = new Set(results.flatMap(row => row.role === null ? [] : [row.role]))
+    return [new User(results[0], new Set(), roles), null]
   } catch (e) {
     return [null, toError(e)]
   }
@@ -135,7 +138,7 @@ export async function getForToken(db: D1Database, scope: string, token: string):
   }
 }
 
-export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>): Promise<[User, null] | [null, Error]> {
+export async function insert(db: D1Database, input: { name: string; email: string }): Promise<[User, null] | [null, Error]> {
   try {
     const results = await db.batch<UserRow>([db.prepare(`
       INSERT INTO users (name, email, created_at) VALUES (?, ?, ?)
@@ -144,12 +147,15 @@ export async function insert(db: D1Database, input: Pick<User, 'name' | 'email'>
     `).bind(input.name, input.email, Date.now()), db.prepare(`
       INSERT INTO user_roles (user_id, role_code)
       SELECT users.id, 'public' FROM users
-      WHERE users.email = ?
-        AND NOT EXISTS (SELECT 1 FROM user_roles WHERE user_roles.user_id = users.id)
+      -- Only assign a role if the preceding statement created a user.
+      WHERE users.email = ? AND changes() = 1
     `).bind(input.email)])
-    const user = results[0].results[0] ?? null
-    // A repeated signup must never change an existing account's name.
-    if (user === null) return getByEmail(db, input.email)
+    const userInsertResult = results[0]
+    // If the email already existed, the insert returned no rows. Load the existing user instead.
+    if (userInsertResult.results.length === 0) {
+      return getByEmail(db, input.email)
+    }
+    const user = userInsertResult.results[0]
     return [new User(user), null]
   } catch (e) {
     return [null, toError(e)]
